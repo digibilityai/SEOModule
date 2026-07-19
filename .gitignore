@@ -1,0 +1,14 @@
+node_modules
+dist
+dist-ssr
+*.local
+.env
+.DS_Store
+
+# crawler worker
+crawler-worker/node_modules
+crawler-worker/.env
+crawler-worker/.env.*
+
+# supabase CLI local state (not source; may contain env-specific identifiers)
+supabase/.temp/

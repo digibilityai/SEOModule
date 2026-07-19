@@ -1,0 +1,23 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "digibility-ui",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-c", "cd ../digibility-UI-Kit-small && npm run dev"],
+      "port": 8080
+    },
+    {
+      "name": "profile-analysis-backend",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-c", "cd ../ProfileAnalysisAIAgent && venv/bin/python src/app.py"],
+      "port": 3000
+    },
+    {
+      "name": "seo-module-dev",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 8090
+    }
+  ]
+}

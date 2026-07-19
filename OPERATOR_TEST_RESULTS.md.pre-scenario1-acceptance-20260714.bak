@@ -1,0 +1,70 @@
+# Operator Test Results — Crawler Customer UI (Phase 16H / Crawler 1F)
+
+**Acceptance state:** `IMPLEMENTED AND AUTOMATED-VERIFIED — OPERATOR ACCEPTANCE PENDING`
+
+Fill one block per scenario from `OPERATOR_USER_ACCEPTANCE_TEST_GUIDE.md`. Never
+record passwords. Screenshots go in a local (git-ignored) folder; record only the
+filename here.
+
+| Field | Value |
+|---|---|
+| Tester | |
+| Environment | Digi_SEO_Test (ref snyzotgwwfomgafrsvfm) |
+| App data mode | supabase / mock |
+| Commit | |
+
+---
+
+## Scenario 1 — Owner complete journey
+- Date:
+- Commit:
+- Browser:
+- Role: owner
+- Route: /seo/audit
+- Starting state:
+- Expected result: queued → completed; audit + page inventory published; refresh persists; freshness shown; no recommendation
+- Actual result:
+- Network result (RPCs seen):
+- Database result (job/run/publication):
+- Screenshot filename:
+- Result: PASS / FAIL / BLOCKED
+- Notes:
+- Retest date / result:
+
+## Scenario 2 — Team-member request
+- Date: / Commit: / Browser: / Role: team_member / Route: /seo/audit
+- Expected: request + cancel permitted; Stage 6 restrictions unchanged
+- Actual: / Network: / Database: / Screenshot: / Result: / Notes: / Retest:
+
+## Scenario 3 — Client (read-only)
+- Date: / Commit: / Browser: / Role: client / Route: /seo/audit
+- Expected: results readable; Start crawl absent/disabled; no request/cancel RPC; Stage 6 unchanged
+- Actual: / Network: / Database: / Screenshot: / Result: / Notes: / Retest:
+
+## Scenario 4 — Cancellation
+- Date: / Commit: / Browser: / Role: owner|admin|team_member / Route: /seo/audit
+- Expected: cancellation_requested when active → cancelled; no false completion
+- Actual: / Network: / Database: / Screenshot: / Result: / Notes: / Retest:
+
+## Scenario 5 — Partial result
+- Date: / Commit: / Browser: / Role: / Route: /seo/audit
+- Expected: partially_completed; usable results visible; absent pages not removed
+- Actual: / Network: / Database: / Screenshot: / Result: / Notes: / Retest:
+
+## Scenario 6 — Failure / retry
+- Date: / Commit: / Browser: / Role: / Route: /seo/audit
+- Expected: customer-safe error; retry state; no secret/diagnostic exposed
+- Actual: / Network: / Database: / Screenshot: / Result: / Notes: / Retest:
+
+## Scenario 7 — Refresh & sign-out
+- Date: / Commit: / Browser: / Role: / Route: /seo/audit
+- Expected: state restores on refresh; sign-out clears crawl data; no cross-user leak
+- Actual: / Network: / Database: / Screenshot: / Result: / Notes: / Retest:
+
+---
+
+## Sign-off
+- All scenarios PASS: ☐
+- Operator name:
+- Date:
+- Final state → update to `FULLY ACCEPTED` in `PHASE_16H_CRAWLER_CUSTOMER_UI_SIGNOFF.md` when all pass.
