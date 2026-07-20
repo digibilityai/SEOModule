@@ -16,10 +16,14 @@ import {
 import { MOCK_CURRENT_ROLE } from "@/mocks/mockContext";
 import { filterApprovalItems, type ApprovalFilterKey } from "@/lib/approvalPermissions";
 import { APPROVAL_QUEUE_SAFETY_NOTICE } from "@/lib/safetyRules";
+import { HELP_ROUTES } from "@/help/routes";
 import { SafetyNotice } from "./shared/SafetyNotice";
 import { RoleSwitcher } from "./approvals/RoleSwitcher";
 import { ApprovalFiltersBar } from "./approvals/ApprovalFiltersBar";
 import { ApprovalItemCard } from "./approvals/ApprovalItemCard";
+
+const HELP_LINK_CLASSNAME =
+  "text-sm font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-sm";
 
 export function ApprovalQueuePage() {
   const queryClient = useQueryClient();
@@ -131,12 +135,15 @@ export function ApprovalQueuePage() {
       <Card>
         <CardHeader>
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
+            <div className="space-y-1.5">
               <CardTitle>Approval Queue</CardTitle>
               <CardDescription>
                 Review before action — nothing here is applied to {activeWebsite.name} until you
                 approve it.
               </CardDescription>
+              <Link to={HELP_ROUTES.APPROVAL_WORKFLOW} className={HELP_LINK_CLASSNAME}>
+                The approval workflow
+              </Link>
             </div>
             <RoleSwitcher role={role} onChange={setRole} />
           </div>

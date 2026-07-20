@@ -12,12 +12,16 @@ import {
   generateProgressReport,
 } from "@/services/reportService";
 import { REPORTS_SAFETY_NOTICE } from "@/lib/safetyRules";
+import { HELP_ROUTES } from "@/help/routes";
 import { SafetyNotice } from "./shared/SafetyNotice";
 import { ReportPeriodSelector } from "./reports/ReportPeriodSelector";
 import { ReportHeader } from "./reports/ReportHeader";
 import { ReportKeyStats } from "./reports/ReportKeyStats";
 import { ReportSectionCard } from "./reports/ReportSectionCard";
 import { ReportExportActions } from "./reports/ReportExportActions";
+
+const HELP_LINK_CLASSNAME =
+  "text-sm font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-sm";
 
 export function ReportsPage() {
   const queryClient = useQueryClient();
@@ -31,7 +35,13 @@ export function ReportsPage() {
   });
   const isOnboardingComplete = onboarding?.status === "completed";
 
-  const { data: report, isLoading: isLoadingReport } = useQuery({
+  const {
+    data: report,
+    isLoading: isLoadingReport,
+    isError: isReportError,
+    refetch: refetchReport,
+    isFetching: isRefetchingReport,
+  } = useQuery({
     queryKey: ["seo-report", activeWebsite?.id, period],
     queryFn: () => fetchReportForPeriod(activeWebsite!.id, period),
     enabled: !!activeWebsite && isOnboardingComplete,
@@ -98,6 +108,9 @@ export function ReportsPage() {
           <CardDescription>
             Here is what improved, what was done, what is pending, and what happens next.
           </CardDescription>
+          <Link to={HELP_ROUTES.DIGIBILITY_OPERATING_MODEL} className={HELP_LINK_CLASSNAME}>
+            How this report is put together
+          </Link>
         </CardHeader>
         <CardContent>
           <ReportPeriodSelector active={period} onChange={setPeriod} />
@@ -106,19 +119,40 @@ export function ReportsPage() {
 
       {isLoadingReport && <p className="text-sm text-muted-foreground">Loading...</p>}
 
-      {!isLoadingReport && !report && (
+      {!isLoadingReport && isReportError && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Couldn't load this report</CardTitle>
+            <CardDescription>
+              Something went wrong fetching the report for {activeWebsite.name}. Please try again.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button variant="outline" onClick={() => refetchReport()} disabled={isRefetchingReport}>
+              {isRefetchingReport ? "Retrying..." : "Retry"}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {!isLoadingReport && !isReportError && !report && (
         <Card>
           <CardHeader>
             <CardTitle>No report yet for this period</CardTitle>
             <CardDescription>
               Generate a report for {activeWebsite.name} using your current audit, content, performance,
-              off-page, AI visibility, competitor, roadmap and support data.
+              off-page and AI visibility data.
             </CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-2">
             <Button onClick={() => generateMutation.mutate()} disabled={generateMutation.isPending}>
               {generateMutation.isPending ? "Generating..." : "Generate / Refresh Report"}
             </Button>
+            {generateMutation.isError && (
+              <p className="text-sm text-destructive">
+                Couldn't generate the report just now. Please try again.
+              </p>
+            )}
           </CardContent>
         </Card>
       )}
@@ -131,6 +165,9 @@ export function ReportsPage() {
             onGenerate={() => generateMutation.mutate()}
             isGenerating={generateMutation.isPending}
           />
+          {generateMutation.isError && (
+            <p className="text-sm text-destructive">Couldn't refresh the report just now. Please try again.</p>
+          )}
           <SafetyNotice text={REPORTS_SAFETY_NOTICE} />
           <ReportKeyStats report={report} />
 
@@ -140,7 +177,7 @@ export function ReportsPage() {
             ))}
           </div>
 
-          <ReportExportActions />
+          <ReportExportActions website={activeWebsite} period={period} />
         </>
       )}
     </div>

@@ -43,6 +43,17 @@ BEGIN
   RAISE NOTICE 'STRUCT+GRANTS ok';
 END $t$;
 
+-- P1b fixture: seed VERIFIED domain-ownership for the seed website so
+-- seo_crawl_request passes the P1b verified-only gate (migration 20260719120034).
+-- Idempotent; token-marked for self-cleaning teardown; workspace/url derived from
+-- the website row. Runs as postgres (RLS bypassed in setup).
+INSERT INTO public.seo_ownership_verifications
+  (workspace_id, website_id, website_url, verification_host, method, status, challenge_token, verified_at)
+SELECT w.workspace_id, w.id, w.website_url, 'p1b-fixture.example', 'dns_txt', 'verified', 'P1B-FIXTURE-TOKEN', now()
+  FROM public.seo_websites w WHERE w.id = current_setting('seo16d.website')::uuid
+ON CONFLICT (website_id, method) DO UPDATE
+  SET status='verified', challenge_token='P1B-FIXTURE-TOKEN', verified_at=now(), updated_at=now();
+
 -- helper: create a queued job as owner and return its id
 CREATE OR REPLACE FUNCTION public._seo16d_new_job(p_key text) RETURNS uuid LANGUAGE plpgsql AS $fn$
 DECLARE v uuid;
@@ -212,5 +223,9 @@ BEGIN
   SELECT count(*) INTO n FROM public.seo_crawl_jobs WHERE idempotency_key LIKE 'PHASE16D-VERIFY-%';
   IF n <> 0 THEN RAISE EXCEPTION 'TEARDOWN: residual jobs %', n; END IF;
 END $t$;
+
+-- P1b fixture cleanup (token-marked; postgres context). RESET ROLE is a safe no-op here.
+RESET ROLE;
+DELETE FROM public.seo_ownership_verifications WHERE challenge_token = 'P1B-FIXTURE-TOKEN';
 
 SELECT 'ALL PASS — seo_phase16d worker lifecycle verification complete' AS result;

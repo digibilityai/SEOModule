@@ -32,6 +32,18 @@ BEGIN
     VALUES (v_w, current_setting('g.ws')::uuid, 'https://phase16g-verify.example', 'P16G', 'P16G', true);
   PERFORM set_config('g.web', v_w::text, false);
 
+  -- P1b fixture: seed VERIFIED domain-ownership for the PRIMARY site (g.web) ONLY,
+  -- so it passes the P1b verified-only gate (migration 20260719120034). The
+  -- cross-workspace foreign site (g.wother, created below) is deliberately LEFT
+  -- UNVERIFIED so its negative test still fails first on AUTHORIZATION, not
+  -- ownership. Token-marked for teardown; cascade-removed with the website too.
+  INSERT INTO public.seo_ownership_verifications
+    (workspace_id, website_id, website_url, verification_host, method, status, challenge_token, verified_at)
+  VALUES (current_setting('g.ws')::uuid, v_w, 'https://phase16g-verify.example',
+          'p1b-fixture.example', 'dns_txt', 'verified', 'P1B-FIXTURE-TOKEN', now())
+  ON CONFLICT (website_id, method) DO UPDATE
+    SET status='verified', challenge_token='P1B-FIXTURE-TOKEN', verified_at=now(), updated_at=now();
+
   v_ws2 := gen_random_uuid();
   -- The owner is auto-added as a workspace member by a Stage 1 trigger.
   INSERT INTO public.seo_workspaces (id, name, owner_user_id) VALUES (v_ws2, 'P16G-Foreign', current_setting('g.nonmember')::uuid);
@@ -406,6 +418,7 @@ RESET ROLE;
 -- ===========================================================================
 DO $t$
 BEGIN
+  DELETE FROM public.seo_ownership_verifications WHERE challenge_token = 'P1B-FIXTURE-TOKEN';  -- P1b fixture (also cascade-removed with g.web below)
   DELETE FROM public.seo_websites  WHERE id IN (current_setting('g.web')::uuid, current_setting('g.wother')::uuid);
   DELETE FROM public.seo_workspaces WHERE id = current_setting('g.ws2')::uuid;  -- cascades foreign ws/website
 

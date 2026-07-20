@@ -18,6 +18,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
       "port": 8090
+    },
+    {
+      "name": "seo-module-dev-8091",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--", "--port", "8091", "--strictPort"],
+      "port": 8091
     }
   ]
 }

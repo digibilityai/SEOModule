@@ -1,0 +1,79 @@
+# Digibility SEO frontend — Cloud Run static-serving config.
+#
+# This file is a TEMPLATE: the base image's own entrypoint script
+# (docker-entrypoint.d/20-envsubst-on-templates.sh) runs `envsubst` over it
+# at container start, substituting ONLY real OS environment variables
+# (restricted to the exact set currently defined via `env`) and writes the
+# result to /etc/nginx/conf.d/default.conf before nginx starts. Because the
+# substitution list is derived from actual environment variables — and
+# nginx's own runtime variables ($uri, $host, etc. below) are never OS
+# environment variables — only ${PORT} is ever replaced; everything else is
+# left untouched. If envsubst or the resulting config is invalid, nginx
+# fails to start and the container exits non-zero — no silently-swallowed
+# startup failure.
+#
+# Cloud Run injects PORT at runtime; the Dockerfile sets ENV PORT=8080 as
+# the safe local/default fallback (see docker run examples in
+# DIGIBILITY_FRONTEND_CLOUD_RUN_DEPLOYMENT_READINESS.md).
+
+server {
+    listen 0.0.0.0:${PORT} default_server;
+    server_name _;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    charset utf-8;
+    server_tokens off;
+
+    gzip on;
+    gzip_vary on;
+    gzip_min_length 512;
+    gzip_types text/plain text/css text/xml application/javascript application/json image/svg+xml font/woff2 application/manifest+json;
+
+    # 1. The app shell itself, requested directly. Never cached, so a new
+    #    deploy's hashed asset references become visible immediately.
+    location = /index.html {
+        include /etc/nginx/snippets/security-headers.conf;
+        add_header Cache-Control "no-cache" always;
+        try_files /index.html =404;
+    }
+
+    # 2. Content-hashed Vite build output (e.g. /assets/index-<hash>.js).
+    #    Safe to cache for a long time and marked immutable — the filename
+    #    itself changes whenever the content does. `^~` stops nginx from
+    #    also checking the regex location below, and a missing file here is
+    #    a real 404 — it is never rewritten to the SPA shell.
+    location ^~ /assets/ {
+        include /etc/nginx/snippets/security-headers.conf;
+        add_header Cache-Control "public, max-age=31536000, immutable" always;
+        try_files $uri =404;
+    }
+
+    # 3. Any other asset-like path outside /assets/ (favicon, robots.txt,
+    #    images, fonts, source maps, manifests, etc. — none ship in this
+    #    build today, but future ones may land in the Vite build root).
+    #    Served directly with moderate caching when present; a real 404
+    #    when missing. This is checked before the catch-all SPA route below
+    #    specifically so a missing asset never falls back to index.html.
+    location ~* \.(?:js|mjs|css|map|json|webmanifest|txt|xml|ico|png|jpe?g|gif|webp|avif|svg|woff2?|ttf|otf|eot)$ {
+        include /etc/nginx/snippets/security-headers.conf;
+        add_header Cache-Control "public, max-age=3600" always;
+        try_files $uri =404;
+    }
+
+    # 4. Everything else is a client-side application route — e.g. /help,
+    #    /help/search, /help/category/reports-decline-diagnosis,
+    #    /help/article/investigating-traffic-ranking-decline, /seo/login,
+    #    /seo/dashboard. Serve the SPA shell and let react-router-dom
+    #    (BrowserRouter, base "/") resolve it client-side. This server does
+    #    not know about authentication or roles — that logic lives entirely
+    #    inside the already-built React app and is unchanged by this
+    #    container; a query string (e.g. ?q=verify) does not affect this
+    #    match, since nginx strips it before computing $uri.
+    location / {
+        include /etc/nginx/snippets/security-headers.conf;
+        add_header Cache-Control "no-cache" always;
+        try_files $uri $uri/ /index.html;
+    }
+}

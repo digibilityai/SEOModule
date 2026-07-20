@@ -22,8 +22,14 @@ export const SEO_MODULE_REGISTRY: SeoModule[] = [
     status: "active",
   },
   {
+    // Internal id kept as "visibility-dashboard" for backward compatibility
+    // (it is not user-visible — see src/registry/navigationGroups.ts and
+    // DIGIBILITY_SEO_COLLAPSIBLE_NAVIGATION_INFORMATION_ARCHITECTURE.md for
+    // the terminology decision). The user-facing name below is "SEO
+    // Dashboard": "Visibility" is a separate Digibility module and must not
+    // be used as a synonym for SEO.
     id: "visibility-dashboard",
-    name: "Visibility Dashboard",
+    name: "SEO Dashboard",
     shortDescription:
       "Overall visibility score, sub-scores, top fixes and recent activity.",
     route: "/seo/dashboard",

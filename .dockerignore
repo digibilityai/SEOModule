@@ -1,0 +1,54 @@
+# Digibility SEO frontend — Docker build context exclusions.
+# Applies when building from the repository root (Dockerfile at root).
+# crawler-worker/ has its own separate .dockerignore for its own build
+# context; it is excluded wholesale here since it is irrelevant to (and
+# must never enter) the frontend image.
+
+# Version control
+.git
+.gitignore
+
+# Dependencies — reinstalled in the build stage from package-lock.json
+node_modules
+
+# Build output — rebuilt in the build stage
+dist
+dist-ssr
+
+# Local env files / credentials — must never enter the build context
+.env
+.env.*
+
+# Docker files themselves (docker/ is NOT excluded — the Dockerfile's own
+# COPY instructions read docker/nginx.conf.template and
+# docker/security-headers.conf from the build context and would fail
+# without it).
+Dockerfile
+.dockerignore
+
+# Editor / OS metadata
+.vscode
+.idea
+.DS_Store
+*.swp
+
+# Test/coverage output (none produced today; excluded for safety)
+coverage
+*.log
+
+# Backend worker + database/migrations — irrelevant to the static frontend
+# build; excluding them also keeps their own .env/.env.example, if any, out
+# of this build context.
+crawler-worker
+supabase
+
+# Claude Code session/config metadata — not part of the application
+.claude
+
+# Large repository documentation (implementation records, plans, sign-offs,
+# ADRs, etc.) — irrelevant to `npm run build` and excluded to keep the
+# build context small. This does not exclude package.json, tsconfig*.json,
+# vite.config.ts, tailwind.config.ts, postcss.config.js, components.json,
+# index.html, or anything under src/ — none of those match *.md.
+*.md
+*.bak

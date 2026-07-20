@@ -1,3 +1,4 @@
+import { HELP_ROUTES } from "@/help/routes";
 import { PlaceholderPage } from "./PlaceholderPage";
 
 export function KeywordResearchPage() {
@@ -5,6 +6,8 @@ export function KeywordResearchPage() {
     <PlaceholderPage
       title="Keyword Research"
       description="A dedicated keyword research tool hasn't been built yet. Keyword planning for a specific content piece is available today inside Content Studio."
+      helpRoute={HELP_ROUTES.FEATURE_AVAILABILITY}
+      helpLabel="What 'not built yet' means"
     />
   );
 }

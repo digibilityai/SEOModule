@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { NewSeoWebsiteInput } from "@/types";
 import { Button } from "@/components/ui/button";
@@ -6,8 +7,12 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { fetchWebsites, addWebsite } from "@/services/websiteService";
 import { getPlanConfig } from "@/registry/planRegistry";
 import { MOCK_CURRENT_PLAN_TIER, MOCK_WORKSPACE_ID } from "@/mocks/mockContext";
+import { HELP_ROUTES } from "@/help/routes";
 import { WebsiteCard } from "./WebsiteCard";
 import { WebsiteForm } from "./WebsiteForm";
+
+const HELP_LINK_CLASSNAME =
+  "text-sm font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-sm";
 
 export function WebsitesPage() {
   const queryClient = useQueryClient();
@@ -38,6 +43,9 @@ export function WebsitesPage() {
             Every SEO audit, recommendation and report is tied to a website. Add the sites you
             want Digibility to work on.
           </CardDescription>
+          <Link to={HELP_ROUTES.ADDING_WEBSITE} className={HELP_LINK_CLASSNAME}>
+            How adding a website works
+          </Link>
         </CardHeader>
         <CardContent className="space-y-4">
           {isAtWebsiteLimit && (

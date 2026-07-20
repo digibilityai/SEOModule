@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
+import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   ContentTone,
@@ -19,7 +20,11 @@ import {
   saveOnboarding,
 } from "@/services/businessOnboardingService";
 import { useResolvedActiveWebsite } from "@/hooks/useResolvedActiveWebsite";
+import { HELP_ROUTES } from "@/help/routes";
 import { PlaceholderPage } from "./PlaceholderPage";
+
+const HELP_LINK_CLASSNAME =
+  "text-sm font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-sm";
 
 const MAIN_SEO_GOAL_OPTIONS: { value: MainSeoGoal; label: string }[] = [
   { value: "more_leads", label: "Get more leads" },
@@ -171,11 +176,14 @@ export function BusinessOnboardingPage() {
     <Card>
       <CardHeader>
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
+          <div className="space-y-1.5">
             <CardTitle>Business Onboarding</CardTitle>
             <CardDescription>
               Tell us about {activeWebsite.business_name} so SEO recommendations aren't generic.
             </CardDescription>
+            <Link to={HELP_ROUTES.BUSINESS_ONBOARDING} className={HELP_LINK_CLASSNAME}>
+              Why this matters
+            </Link>
           </div>
           <div className="flex items-center gap-2">
             <Badge variant={status === "completed" ? "default" : "secondary"}>
