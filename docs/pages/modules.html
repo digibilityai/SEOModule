@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Modules &amp; routes — SEO docs</title>
+  <link rel="stylesheet" href="../assets/styles.css" />
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar" id="sidebar"></aside>
+    <main class="content">
+      <div class="topbar">
+        <div class="crumb"><a href="../index.html">docs</a> / modules</div>
+        <span class="badge info">Frontend map</span>
+      </div>
+
+      <h1>Modules &amp; routes</h1>
+      <p class="lead">
+        Product surfaces under <code class="inline">/seo/*</code>, their services,
+        backend stages, and lock status.
+      </p>
+
+      <h2>Route classification</h2>
+      <table>
+        <thead><tr><th>Class</th><th>Routes</th><th>Gate</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>Public</td>
+            <td><code class="inline">/seo/login</code></td>
+            <td>Chromeless; no shell</td>
+          </tr>
+          <tr>
+            <td>Setup</td>
+            <td><code class="inline">/seo/websites</code>, <code class="inline">/seo/onboarding</code></td>
+            <td><code class="inline">allowSetup</code> — no active website required</td>
+          </tr>
+          <tr>
+            <td>Auth-only</td>
+            <td>dashboard, approvals, support, settings</td>
+            <td>Session + module access; website optional</td>
+          </tr>
+          <tr>
+            <td>Website-scoped</td>
+            <td>audit, content-studio, page-performance, off-page, …</td>
+            <td><code class="inline">requireWebsite</code></td>
+          </tr>
+          <tr>
+            <td>Admin</td>
+            <td><code class="inline">/seo/admin-preview</code></td>
+            <td><code class="inline">seo_is_global_admin</code></td>
+          </tr>
+          <tr>
+            <td>Dev-only</td>
+            <td><code class="inline">/seo/dev/*</code></td>
+            <td>Mounted only when <code class="inline">import.meta.env.DEV</code></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h2>Module → route → service → stage</h2>
+      <table>
+        <thead>
+          <tr><th>Module</th><th>Route</th><th>Service(s)</th><th>Backend</th><th>Status</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Dashboard</td>
+            <td><code class="inline">/seo/dashboard</code></td>
+            <td>dashboardService</td>
+            <td>composed reads</td>
+            <td>Wired</td>
+          </tr>
+          <tr>
+            <td>Websites</td>
+            <td><code class="inline">/seo/websites</code></td>
+            <td>websiteService, ownershipVerificationService</td>
+            <td>Stage 1 + P1a</td>
+            <td>Wired</td>
+          </tr>
+          <tr>
+            <td>Business onboarding</td>
+            <td><code class="inline">/seo/onboarding</code></td>
+            <td>businessOnboardingService</td>
+            <td>Stage 1</td>
+            <td>Wired</td>
+          </tr>
+          <tr>
+            <td>Website audit + crawl</td>
+            <td><code class="inline">/seo/audit</code></td>
+            <td>auditService, crawlService, recommendationService</td>
+            <td>Stage 2 + 16C–H</td>
+            <td>Wired · crawl TEST accepted</td>
+          </tr>
+          <tr>
+            <td>Approval queue</td>
+            <td><code class="inline">/seo/approvals</code></td>
+            <td>approvalService</td>
+            <td>Stage 2</td>
+            <td>Wired</td>
+          </tr>
+          <tr>
+            <td>Content Studio</td>
+            <td><code class="inline">/seo/content-studio</code></td>
+            <td>contentStudioService</td>
+            <td>Stage 3</td>
+            <td>Wired</td>
+          </tr>
+          <tr>
+            <td>Page Performance</td>
+            <td><code class="inline">/seo/page-performance</code></td>
+            <td>performanceService</td>
+            <td>Stage 4</td>
+            <td><span class="badge ok">LOCKED</span></td>
+          </tr>
+          <tr>
+            <td>Decline Diagnosis</td>
+            <td><code class="inline">/seo/decline-diagnosis</code></td>
+            <td>(decline diagnosis service)</td>
+            <td>Stage 5</td>
+            <td>Wired</td>
+          </tr>
+          <tr>
+            <td>Off-Page Authority</td>
+            <td><code class="inline">/seo/off-page</code></td>
+            <td>offPageService</td>
+            <td>Stage 6</td>
+            <td><span class="badge ok">LOCKED (impl. scope)</span></td>
+          </tr>
+          <tr>
+            <td>AI Visibility</td>
+            <td><code class="inline">/seo/ai-visibility</code></td>
+            <td>aiVisibilityService</td>
+            <td>Stage 6</td>
+            <td>Reads locked; writes deferred</td>
+          </tr>
+          <tr>
+            <td>Keyword / Competitors / Gaps / Briefs / Optimizer</td>
+            <td>matching /seo/… routes</td>
+            <td>mostly mock / placeholder pages</td>
+            <td>—</td>
+            <td><span class="badge muted">Mock / early</span></td>
+          </tr>
+          <tr>
+            <td>Roadmap / Reports / Support</td>
+            <td>/seo/roadmap, /reports, /support</td>
+            <td>roadmapService, reportService, supportService</td>
+            <td>—</td>
+            <td><span class="badge muted">Mock only</span></td>
+          </tr>
+          <tr>
+            <td>Admin preview</td>
+            <td><code class="inline">/seo/admin-preview</code></td>
+            <td>seoAdminService, adminPreviewSummaryService</td>
+            <td>Core is_admin seam</td>
+            <td>Temporary stand-in</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h2>Suggested product navigation (from product context)</h2>
+      <ol>
+        <li>SEO Dashboard</li>
+        <li>Websites</li>
+        <li>Website Audit</li>
+        <li>Keyword Research</li>
+        <li>Competitor Analysis</li>
+        <li>Content Gaps</li>
+        <li>Blog Briefs</li>
+        <li>Page Optimizer</li>
+        <li>Reports</li>
+        <li>Settings</li>
+      </ol>
+      <p>Implemented navigation also includes Content Studio, Page Performance, Decline Diagnosis, Off-Page, AI Visibility, Roadmap, Approvals, Support.</p>
+
+      <p class="footer-note">
+        Source: <code class="inline">src/routes/SeoRoutes.tsx</code>,
+        <a href="../markdown/PROJECT_BOOTSTRAP.md">PROJECT_BOOTSTRAP.md</a> Module Map,
+        <a href="../markdown/MODULE_LOCKS.md">MODULE_LOCKS.md</a>.
+      </p>
+    </main>
+  </div>
+  <script>window.DOC_PAGE = "modules.html"; window.DOC_PREFIX = "../";</script>
+  <script src="../assets/nav.js"></script>
+</body>
+</html>

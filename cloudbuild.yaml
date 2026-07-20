@@ -1,0 +1,87 @@
+# Digibility SEO frontend — staging (test) Cloud Build pipeline
+#
+# Prerequisites (GCP project digibility-frontend or your SEO project):
+#   - Artifact Registry repo: digi-seo-frontend-repo (asia-southeast1)
+#   - Secrets (Secret Manager):
+#       seo-test-supabase-url
+#       seo-test-supabase-anon-key
+#       seo-test-digibility-anon-key
+#   - Optional: map custom domain seo-test.digibility.ai → digi-seo-frontend-test
+#
+# Trigger (recommended):
+#   - Connect SEO GitHub repo; run on push to release/test branch
+#   - Build config: cloudbuild.yaml
+#   - Service account with Cloud Run Admin + Artifact Registry Writer + Secret Accessor
+
+substitutions:
+  _REGION: asia-southeast1
+  _REPO: digi-seo-frontend-repo
+  _IMAGE: digi-seo-frontend
+  _SERVICE: digi-seo-frontend-test
+  # Digibility test UI host (matches existing Digibility .ai hosts)
+  _DIGIBILITY_APP_URL: https://testapp.digibility.ai
+  # Core DevApp / test Supabase Edge Function (update if your Core project ref differs)
+  _DIGIBILITY_BRIDGE_URL: https://dwkfhnbcvaljvrcsxzkl.supabase.co/functions/v1/seo-bridge
+  _RUNTIME_SA: digi-frontend-runner@digibility-frontend.iam.gserviceaccount.com
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+steps:
+  - name: gcr.io/cloud-builders/docker
+    id: build-image
+    args:
+      - build
+      - -t
+      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_IMAGE}:${COMMIT_SHA}
+      - -t
+      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_IMAGE}:latest
+      - .
+
+  - name: gcr.io/cloud-builders/docker
+    id: push-image
+    args:
+      - push
+      - --all-tags
+      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_IMAGE}
+    waitFor:
+      - build-image
+
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    id: deploy-cloud-run
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - ${_SERVICE}
+      - --project
+      - ${PROJECT_ID}
+      - --region
+      - ${_REGION}
+      - --platform
+      - managed
+      - --image
+      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_IMAGE}:${COMMIT_SHA}
+      - --allow-unauthenticated
+      - --service-account
+      - ${_RUNTIME_SA}
+      - --port
+      - "8080"
+      - --memory
+      - 512Mi
+      - --cpu
+      - "1"
+      - --min-instances
+      - "0"
+      - --max-instances
+      - "3"
+      - --set-env-vars
+      - SEO_DATA_MODE=supabase,DIGIBILITY_APP_URL=${_DIGIBILITY_APP_URL},DIGIBILITY_BRIDGE_URL=${_DIGIBILITY_BRIDGE_URL}
+      - --set-secrets
+      - SUPABASE_URL=seo-test-supabase-url:latest,SUPABASE_ANON_KEY=seo-test-supabase-anon-key:latest,DIGIBILITY_ANON_KEY=seo-test-digibility-anon-key:latest
+    waitFor:
+      - push-image
+
+images:
+  - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_IMAGE}:${COMMIT_SHA}
+  - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_IMAGE}:latest

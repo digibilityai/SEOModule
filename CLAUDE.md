@@ -30,7 +30,12 @@ The existing app is only a reference for:
 
 Before making any plan or writing any code, read:
 
-PROJECT_CONTEXT.md
+`docs/markdown/PROJECT_CONTEXT.md`
+
+Browseable architecture & flow docs (no server): `docs/index.html`
+
+Session bootstrap / status / locks (markdown): under `docs/markdown/` —
+start with `PROJECT_BOOTSTRAP.md`, `CURRENT_PROJECT_STATUS.md`, `MODULE_LOCKS.md`.
 
 ## Build Goal
 

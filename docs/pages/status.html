@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Current status — SEO docs</title>
+  <link rel="stylesheet" href="../assets/styles.css" />
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar" id="sidebar"></aside>
+    <main class="content">
+      <div class="topbar">
+        <div class="crumb"><a href="../index.html">docs</a> / status</div>
+        <span class="badge warn">Synthesis · see markdown for authority</span>
+      </div>
+
+      <h1>Current status (readable summary)</h1>
+      <p class="lead">
+        Snapshot for humans browsing this HTML set. The authoritative file is
+        <a href="../markdown/CURRENT_PROJECT_STATUS.md">CURRENT_PROJECT_STATUS.md</a>
+        (updated frequently with operator evidence).
+      </p>
+
+      <div class="callout ok">
+        <strong>Environment:</strong> all backend work targets disposable TEST project
+        <code class="inline">Digi_SEO_Test</code>. <strong>Production untouched.</strong>
+      </div>
+
+      <h2>Done</h2>
+      <ul>
+        <li>Backend Stages 1–6 applied + smoke-tested on TEST</li>
+        <li>Service wiring through Stage 6 opportunity + campaign workflows</li>
+        <li>Customer auth + <code class="inline">/seo/*</code> route protection (16B)</li>
+        <li>Crawler control plane → worker → discovery → extraction → publish → customer UI (16C–16H), operator-accepted on TEST</li>
+        <li>Domain ownership verification (P1a) implemented end-to-end; browser role matrix PASS</li>
+        <li>Module locks for Page Performance Tracker and Stage 6 implemented scope</li>
+      </ul>
+
+      <h2>Not done / next</h2>
+      <ul>
+        <li>P1a module lock blocked on real <code class="inline">verify-once</code> worker binary against TEST</li>
+        <li>P1b: enforce verified-only crawl enqueue — not started</li>
+        <li>Production crawler deployment, secrets ops, usage/plan enforcement</li>
+        <li>Recommendation generation from crawl findings</li>
+        <li>AI Visibility writes + real LLM ingestion</li>
+        <li>Campaign task-completion writes</li>
+        <li>Competitors / Roadmap / Reports backends</li>
+        <li>GSC / GA4 live ingestion</li>
+        <li>Parent Digibility BFF / Admin Panel integration</li>
+      </ul>
+
+      <h2>Product maturity label</h2>
+      <p>
+        Workflow / demo MVP with real crawl path on TEST — <strong>not</strong> full
+        production-ready customer SaaS yet. See
+        <a href="../markdown/MVP_RELEASE_READINESS_AND_NEXT_SCOPE.md">MVP_RELEASE_READINESS_AND_NEXT_SCOPE.md</a>.
+      </p>
+
+      <p class="footer-note">
+        Also useful:
+        <a href="../markdown/BACKEND_MILESTONE_HANDOFF.md">BACKEND_MILESTONE_HANDOFF.md</a>,
+        <a href="../markdown/MODULE_LOCKS.md">MODULE_LOCKS.md</a>,
+        <a href="../markdown/CHATGPT_CONTEXT_HANDOVER.md">CHATGPT_CONTEXT_HANDOVER.md</a>.
+      </p>
+    </main>
+  </div>
+  <script>window.DOC_PAGE = "status.html"; window.DOC_PREFIX = "../";</script>
+  <script src="../assets/nav.js"></script>
+</body>
+</html>

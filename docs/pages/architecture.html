@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Overall architecture — SEO docs</title>
+  <link rel="stylesheet" href="../assets/styles.css" />
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar" id="sidebar"></aside>
+    <main class="content">
+      <div class="topbar">
+        <div class="crumb"><a href="../index.html">docs</a> / architecture</div>
+        <span class="badge info">System design</span>
+      </div>
+
+      <h1>Overall architecture</h1>
+      <p class="lead">
+        How a user request travels from the browser through services, Supabase RLS,
+        Postgres, and (when needed) background workers — without a customer-facing BFF.
+      </p>
+
+      <div class="toc">
+        <strong>On this page</strong>
+        <ol>
+          <li><a href="#layers">Layered system</a></li>
+          <li><a href="#request-path">Generic request path</a></li>
+          <li><a href="#trust">Trust boundaries</a></li>
+          <li><a href="#tenancy">Tenancy model</a></li>
+          <li><a href="#folders">Codebase map</a></li>
+        </ol>
+      </div>
+
+      <h2 id="layers">1. Layered system</h2>
+      <div class="lane">
+        <div class="lane-box"><b>Presentation</b><code class="inline">src/pages/seo/*</code><br/>Routes + UI</div>
+        <div class="lane-box"><b>Hooks / Query</b><code class="inline">src/hooks/*</code><br/>TanStack Query</div>
+        <div class="lane-box"><b>Services</b><code class="inline">src/services/*</code><br/>Mock ↔ Supabase</div>
+        <div class="lane-box"><b>Data plane</b>Supabase JS<br/>anon + JWT</div>
+        <div class="lane-box"><b>Authorization</b>Postgres RLS<br/>+ SECDEF RPCs</div>
+        <div class="lane-box"><b>Workers</b><code class="inline">crawler-worker/</code><br/>service_role</div>
+      </div>
+
+      <h3>What each layer owns</h3>
+      <table>
+        <thead><tr><th>Layer</th><th>Owns</th><th>Must not own</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>Pages / components</td>
+            <td>UX, role-gated buttons, polling UX</td>
+            <td>Service-role secrets, inventing authorization</td>
+          </tr>
+          <tr>
+            <td>Service adapter</td>
+            <td>Mock vs Supabase routing, error fallback policy</td>
+            <td>Business rules that belong in RPCs</td>
+          </tr>
+          <tr>
+            <td>RLS policies</td>
+            <td>Row visibility (workspace membership)</td>
+            <td>Complex multi-table state machines (use RPCs)</td>
+          </tr>
+          <tr>
+            <td>Guarded RPCs</td>
+            <td>Writes that change status, enqueue jobs, create campaigns</td>
+            <td>Long-running crawl execution</td>
+          </tr>
+          <tr>
+            <td>Workers</td>
+            <td>Claim/lease jobs, fetch pages, DNS checks, publish results</td>
+            <td>Customer auth decisions (trust the job row)</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h2 id="request-path">2. Generic request path (reads)</h2>
+      <div class="flow">
+        <div class="flow-step">
+          <div class="flow-num">1</div>
+          <div class="flow-body">
+            <strong>User opens a protected route</strong>
+            <p><code class="inline">ProtectedRoute</code> → <code class="inline">useSeoAccess()</code> resolves session, SEO module access, workspace, active website.</p>
+            <div class="flow-meta">
+              <span class="badge info">React Router</span>
+              <span class="badge muted">/seo/*</span>
+            </div>
+          </div>
+        </div>
+        <div class="arrow-down">↓</div>
+        <div class="flow-step">
+          <div class="flow-num">2</div>
+          <div class="flow-body">
+            <strong>Page hook asks a service</strong>
+            <p>e.g. <code class="inline">auditService.fetchLatestRun(websiteId)</code> via TanStack Query.</p>
+          </div>
+        </div>
+        <div class="arrow-down">↓</div>
+        <div class="flow-step">
+          <div class="flow-num">3</div>
+          <div class="flow-body">
+            <strong><code class="inline">runWithServiceAdapter()</code></strong>
+            <p>If <code class="inline">VITE_SEO_DATA_MODE=mock</code> (default) → mock store. If supabase + configured → real client call.</p>
+          </div>
+        </div>
+        <div class="arrow-down">↓</div>
+        <div class="flow-step">
+          <div class="flow-num">4</div>
+          <div class="flow-body">
+            <strong>Supabase JS → PostgREST</strong>
+            <p><code class="inline">select</code> / <code class="inline">rpc</code> with the user’s JWT. Anon key alone is not enough — RLS uses <code class="inline">auth.uid()</code>.</p>
+          </div>
+        </div>
+        <div class="arrow-down">↓</div>
+        <div class="flow-step">
+          <div class="flow-num">5</div>
+          <div class="flow-body">
+            <strong>Postgres returns only allowed rows</strong>
+            <p>Workspace-member SELECT policies filter by membership. Non-members get empty / denied.</p>
+          </div>
+        </div>
+      </div>
+
+      <h2 id="trust">3. Trust boundaries</h2>
+      <pre>┌──────────────────────────────┐     JWT + anon key      ┌─────────────────────────────┐
+│  Browser (untrusted)         │ ───────────────────────► │  Supabase / Postgres         │
+│  React, mocks, local state   │                          │  RLS + SECURITY DEFINER RPCs │
+└──────────────────────────────┘                          └──────────────┬──────────────┘
+                                                                         │
+                                         service_role (never in browser) │
+                                                                         ▼
+                                                          ┌─────────────────────────────┐
+                                                          │  crawler-worker (trusted)    │
+                                                          │  claim → crawl → publish     │
+                                                          │  verify-once → DNS-TXT       │
+                                                          └─────────────────────────────┘</pre>
+
+      <div class="callout warn">
+        The frontend may call customer RPCs (crawl request, approval transition, ownership initiate, …).
+        It must never call service-role-only functions such as
+        <code class="inline">seo_crawl_claim_job</code> or
+        <code class="inline">seo_ownership_verification_claim</code>.
+      </div>
+
+      <h2 id="tenancy">4. Tenancy model</h2>
+      <pre>auth.users ──1:1── profiles                    (Digibility Core, shared)
+     │
+     ├── user_module_access (module = 'seo' | 'visibility')
+     ├── seo_subscriptions / seo_plan_limits / seo_usage_*   (schema; limits not fully enforced yet)
+     │
+     └── seo_workspace_members ──► seo_workspaces
+                                      │
+                                      └── seo_websites  ◄── EVERY SEO child record
+                                              │
+                                              ├── audits / recommendations / approvals
+                                              ├── content studio
+                                              ├── page inventory / performance / decline
+                                              ├── authority + AI visibility
+                                              ├── crawl_* + ownership_*</pre>
+
+      <p>
+        <strong>Invariant:</strong> operational SEO rows store both
+        <code class="inline">website_id</code> (FK source of truth) and
+        <code class="inline">website_url</code> (historical snapshot).
+      </p>
+
+      <h2 id="folders">5. Codebase map</h2>
+      <table>
+        <thead><tr><th>Path</th><th>Role</th></tr></thead>
+        <tbody>
+          <tr><td><code class="inline">src/routes/</code></td><td>Route tree, ProtectedRoute, access helpers</td></tr>
+          <tr><td><code class="inline">src/pages/seo/</code></td><td>Feature UIs (audit, off-page, performance, …)</td></tr>
+          <tr><td><code class="inline">src/services/</code></td><td>Public service API + mock/supabase adapters</td></tr>
+          <tr><td><code class="inline">src/services/supabase/</code></td><td>PostgREST queries + RPC wrappers</td></tr>
+          <tr><td><code class="inline">src/hooks/</code></td><td>React Query hooks (crawl, ownership, access, …)</td></tr>
+          <tr><td><code class="inline">src/mocks/</code></td><td>Deterministic preview data</td></tr>
+          <tr><td><code class="inline">supabase/migrations/</code></td><td>Additive SQL (Stages 1–6, crawler, P1a)</td></tr>
+          <tr><td><code class="inline">supabase/test/</code></td><td>Seeds + verification SQL (TEST only)</td></tr>
+          <tr><td><code class="inline">crawler-worker/</code></td><td>Node worker: crawl + ownership verify-once</td></tr>
+          <tr><td><code class="inline">docs/</code></td><td>This HTML documentation + consolidated markdown</td></tr>
+        </tbody>
+      </table>
+
+      <p class="footer-note">
+        Related markdown:
+        <a href="../markdown/SUPABASE_BACKEND_ARCHITECTURE_PLAN.md">SUPABASE_BACKEND_ARCHITECTURE_PLAN.md</a>,
+        <a href="../markdown/PROJECT_BOOTSTRAP.md">PROJECT_BOOTSTRAP.md</a>,
+        <a href="../markdown/ADR_CRAWLER_RUNTIME_ARCHITECTURE.md">ADR_CRAWLER_RUNTIME_ARCHITECTURE.md</a>.
+      </p>
+    </main>
+  </div>
+  <script>window.DOC_PAGE = "architecture.html"; window.DOC_PREFIX = "../";</script>
+  <script src="../assets/nav.js"></script>
+</body>
+</html>

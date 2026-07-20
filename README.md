@@ -2,7 +2,26 @@
 
 Standalone Vite + React + TypeScript app for SEO Intelligence. Built to run
 independently during development and plug into the main Digibility app later.
-See `PROJECT_CONTEXT.md` and `CLAUDE.md` for full scope and rules.
+
+## Documentation (start here)
+
+**Browse offline (no server):** open [`docs/index.html`](docs/index.html) in any browser.
+
+That HTML guide covers overall architecture, request sequences, data-flow
+sequences, modules/routes, tables/RPCs, crawler pipeline, ownership
+verification, auth, and the service layer.
+
+All project markdown files are consolidated in [`docs/markdown/`](docs/markdown/)
+(62 files). Root stubs (`PROJECT_BOOTSTRAP.md`, `CURRENT_PROJECT_STATUS.md`, …)
+point to those locations. See also [`docs/README.md`](docs/README.md).
+
+| Doc | Purpose |
+| --- | --- |
+| [`docs/index.html`](docs/index.html) | Browseable architecture & flow docs |
+| [`docs/markdown/PROJECT_BOOTSTRAP.md`](docs/markdown/PROJECT_BOOTSTRAP.md) | AI/session entry point |
+| [`docs/markdown/CURRENT_PROJECT_STATUS.md`](docs/markdown/CURRENT_PROJECT_STATUS.md) | Authoritative status |
+| [`docs/markdown/PROJECT_CONTEXT.md`](docs/markdown/PROJECT_CONTEXT.md) | Product scope & business rules |
+| [`CLAUDE.md`](CLAUDE.md) | Coding-agent build rules |
 
 ## Stack
 
@@ -15,8 +34,8 @@ app (`digibility-UI-Kit-small`).
 ```bash
 npm install
 cp .env.example .env
-# fill VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY with the SAME
-# Supabase project used by the main Digibility app
+# fill VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY for the dedicated SEO
+# Supabase project; see .env.example for optional Digibility SSO bridge config
 npm run dev
 ```
 
@@ -24,35 +43,31 @@ App runs at `http://localhost:8090`.
 
 ## Project status (summary)
 
-For the always-current, authoritative status, read **`CURRENT_PROJECT_STATUS.md`**;
-for a map of every documentation file, read **`PROJECT_DOCUMENTATION_INDEX.md`**.
-In brief, as of Phase 14B.2:
+For the always-current checkpoint, read
+[`docs/markdown/CURRENT_PROJECT_STATUS.md`](docs/markdown/CURRENT_PROJECT_STATUS.md)
+or the HTML [status page](docs/pages/status.html).
 
-- **Backend (Supabase):** Stages 1–5 (access/workspaces/websites; audit/
-  recommendations/approval; Content Studio; Page Performance Tracker; Decline
-  Diagnosis Engine) are applied to a **TEST Supabase project and verified**
-  (dry-run + structural checks + SQL smoke tests). **Production untouched.**
-- **Frontend/service wiring:** complete through Phase 14B.2, all behind a
-  mock/Supabase data-mode adapter — mock mode is the default and the fallback.
-  Off-Page Authority, AI Visibility, Competitors, Roadmap, and Reports remain
-  mock-only (no backend stage yet).
-- **Test data:** base UI seed dataset + Stage 4 and Stage 5 UI seed extensions
-  applied and verified on TEST (Stage 5: 8 diagnoses / 20 evidence / 6
-  current-view rows).
+In brief:
+
+- **Backend (Supabase):** Stages 1–6 + crawler (16C–16H) + ownership (P1a)
+  applied to disposable **TEST** project only. **Production untouched.**
+- **Frontend wiring:** Stages 1–6 reads; opportunity + campaign writes;
+  crawl UI on `/seo/audit`; ownership UI on `/seo/websites`.
+- **Cross-project SSO:** implemented in source (Digibility login + entitlement
+  bridge to a dedicated SEO Supabase project); not deployed/live-tested.
+- **Still mock-only / deferred:** Competitors, Roadmap, Reports; AI Visibility
+  writes; GSC/GA4; production crawler deployment; P1b verified-only crawl gate.
 
 ## Data mode
 
-The app runs in **mock mode by default**. To exercise the Supabase-wired
-services against the TEST project, set `VITE_SEO_DATA_MODE=supabase` (with valid
-`VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY`) — see `SERVICE_LAYER_WIRING_PLAN.md`.
+The app runs in **mock mode by default**. To exercise Supabase-wired services
+against TEST, set `VITE_SEO_DATA_MODE=supabase` (with valid
+`VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY`) — see
+[`docs/markdown/SERVICE_LAYER_WIRING_PLAN.md`](docs/markdown/SERVICE_LAYER_WIRING_PLAN.md).
 Invalid/missing config safely resolves back to mock.
 
-## Not done yet (later work)
+## Architecture (one line)
 
-- No real crawler, GSC/GA4, LLM generation, or publishing — seeded/placeholder
-  data only.
-- No production apply (gated — see `BACKEND_MILESTONE_HANDOFF.md` §5).
-- No backend for Off-Page Authority, AI Visibility, Competitors, Roadmap,
-  Reports yet.
-- Admin integration into the existing Digibility Admin Panel is future work.
-- No data exchange with Visibility Management yet.
+Browser → service adapter (mock/Supabase) → Supabase PostgREST + RLS / guarded
+RPCs → Postgres. Optional `crawler-worker/` (service_role) claims crawl jobs
+and DNS ownership checks. **No customer-facing BFF.**

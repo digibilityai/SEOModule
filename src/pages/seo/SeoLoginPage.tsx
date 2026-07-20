@@ -1,14 +1,15 @@
 // Phase 16B — customer-facing sign-in for EXISTING Supabase users (login only:
 // no signup, no password reset, no email verification). Chromeless page using
 // the existing design system. NOT the dev harness (which stays dev-only).
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
-import { isMockMode } from "@/config/runtimeConfig";
+import { hasDigibilityBridgeConfig, isMockMode } from "@/config/runtimeConfig";
 import { signInSeoCustomer } from "@/services/supabase/seoAccessService";
 import {
   RETURN_TO_PARAM,
   SEO_DEFAULT_ROUTE,
+  buildDigibilityLoginUrl,
   sanitizeReturnPath,
 } from "@/routes/routeAccess";
 import { Button } from "@/components/ui/button";
@@ -27,6 +28,12 @@ export function SeoLoginPage() {
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const bridgeConfigured = hasDigibilityBridgeConfig();
+
+  useEffect(() => {
+    if (isMockMode() || !bridgeConfigured || sessionLoading || isAuthenticated) return;
+    window.location.replace(buildDigibilityLoginUrl(returnTo));
+  }, [bridgeConfigured, isAuthenticated, returnTo, sessionLoading]);
 
   // Mock mode: sign-in is not required — explain, don't block.
   if (isMockMode()) {
@@ -53,6 +60,22 @@ export function SeoLoginPage() {
   // Already authenticated: skip the form; ProtectedRoute resolves prerequisites.
   if (!sessionLoading && isAuthenticated) {
     return <Navigate to={returnTo} replace />;
+  }
+
+  // Production SSO path: Digibility is the only customer login. Keep the
+  // standalone form below as a non-breaking TEST/local fallback until bridge
+  // configuration is explicitly supplied.
+  if (bridgeConfigured) {
+    return (
+      <CenteredShell>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Redirecting to Digibility</CardTitle>
+            <CardDescription>Sign in once with your Digibility account to open SEO.</CardDescription>
+          </CardHeader>
+        </Card>
+      </CenteredShell>
+    );
   }
 
   const handleSubmit = async (e: FormEvent) => {

@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Auth &amp; access — SEO docs</title>
+  <link rel="stylesheet" href="../assets/styles.css" />
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar" id="sidebar"></aside>
+    <main class="content">
+      <div class="topbar">
+        <div class="crumb"><a href="../index.html">docs</a> / auth</div>
+        <span class="badge info">Phase 16B</span>
+      </div>
+
+      <h1>Auth &amp; access</h1>
+      <p class="lead">
+        No separate SEO identity system. MVP uses standalone Supabase Auth
+        (same project / users as Digibility) with a future parent-identity adapter seam.
+      </p>
+
+      <h2>Decision (ADR Option C hybrid)</h2>
+      <ul>
+        <li><strong>Now:</strong> customer login via Supabase Auth at <code class="inline">/seo/login</code></li>
+        <li><strong>Later:</strong> parent Digibility SSO adapter (not required for MVP)</li>
+        <li><strong>Always:</strong> RLS + guarded RPCs remain authoritative; UI gates are UX only</li>
+      </ul>
+
+      <h2>Access resolution order</h2>
+      <div class="flow">
+        <div class="flow-step">
+          <div class="flow-num">1</div>
+          <div class="flow-body"><strong>Session</strong><p>supabase-js session / auth.uid()</p></div>
+        </div>
+        <div class="arrow-down">↓</div>
+        <div class="flow-step">
+          <div class="flow-num">2</div>
+          <div class="flow-body"><strong>Module access</strong><p><code class="inline">has_seo_module_access</code> / <code class="inline">user_module_access</code></p></div>
+        </div>
+        <div class="arrow-down">↓</div>
+        <div class="flow-step">
+          <div class="flow-num">3</div>
+          <div class="flow-body"><strong>Workspace membership</strong><p><code class="inline">seo_workspace_members</code> with seo_role</p></div>
+        </div>
+        <div class="arrow-down">↓</div>
+        <div class="flow-step">
+          <div class="flow-num">4</div>
+          <div class="flow-body"><strong>Active website</strong><p>Required for website-scoped routes; setup routes skip this</p></div>
+        </div>
+      </div>
+
+      <h2>SEO roles vs platform roles</h2>
+      <table>
+        <thead><tr><th>SEO role (membership)</th><th>Typical powers</th></tr></thead>
+        <tbody>
+          <tr><td>owner</td><td>Full SEO + billing/team (platform-dependent)</td></tr>
+          <tr><td>admin</td><td>Manage SEO work; approve high-risk; ownership mutations</td></tr>
+          <tr><td>team_member</td><td>Run audits/crawls, create campaigns, many transitions; not approve campaigns</td></tr>
+          <tr><td>client</td><td>View reports/results; limited low-risk actions; often read-only for writes</td></tr>
+        </tbody>
+      </table>
+      <p>
+        Platform <code class="inline">profiles.role</code> (super_admin / admin / …) is separate.
+        Global SEO admin checks use <code class="inline">seo_is_global_admin</code> for admin-preview.
+      </p>
+
+      <h2>Session hygiene</h2>
+      <ul>
+        <li><code class="inline">SessionSync</code> prevents cross-user cache leakage</li>
+        <li>Sign-out clears user-scoped React Query keys + active website selection</li>
+        <li>Deep links restore via safe internal <code class="inline">returnTo</code></li>
+        <li>Mock mode bypasses route protection for local preview</li>
+      </ul>
+
+      <p class="footer-note">
+        <a href="../markdown/ADR_CUSTOMER_AUTHENTICATION_FOR_MVP.md">ADR_CUSTOMER_AUTHENTICATION_FOR_MVP.md</a>
+        · <a href="../markdown/PHASE_16B_CUSTOMER_AUTH_ROUTE_PROTECTION_SIGNOFF.md">PHASE_16B sign-off</a>.
+      </p>
+    </main>
+  </div>
+  <script>window.DOC_PAGE = "auth-access.html"; window.DOC_PREFIX = "../";</script>
+  <script src="../assets/nav.js"></script>
+</body>
+</html>

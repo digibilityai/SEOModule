@@ -2,6 +2,8 @@ import { Navigate, Outlet, Route, Routes } from "react-router-dom";
 import { Layout } from "@/components/layout/Layout";
 import { ProtectedRoute } from "@/routes/ProtectedRoute";
 import { SeoLoginPage } from "@/pages/seo/SeoLoginPage";
+import { SeoBridgePage } from "@/pages/seo/SeoBridgePage";
+import { SeoLogoutPage } from "@/pages/seo/SeoLogoutPage";
 import { SeoDashboardPage } from "@/pages/seo/SeoDashboardPage";
 import { WebsitesPage } from "@/pages/seo/WebsitesPage";
 import { BusinessOnboardingPage } from "@/pages/seo/BusinessOnboardingPage";
@@ -48,6 +50,8 @@ export function SeoRoutes() {
     <Routes>
       {/* Public, chromeless */}
       <Route path="/seo/login" element={<SeoLoginPage />} />
+      <Route path="/seo/auth/bridge" element={<SeoBridgePage />} />
+      <Route path="/seo/auth/logout" element={<SeoLogoutPage />} />
 
       {/* Shelled + protected */}
       <Route element={<ShellLayout />}>

@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Service layer — SEO docs</title>
+  <link rel="stylesheet" href="../assets/styles.css" />
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar" id="sidebar"></aside>
+    <main class="content">
+      <div class="topbar">
+        <div class="crumb"><a href="../index.html">docs</a> / service layer</div>
+        <span class="badge info">Adapter pattern</span>
+      </div>
+
+      <h1>Service layer</h1>
+      <p class="lead">
+        The abstraction boundary lives <em>inside</em> the frontend — not as a network BFF.
+        Every wired feature goes through <code class="inline">runWithServiceAdapter</code>.
+      </p>
+
+      <h2>Data mode switch</h2>
+      <table>
+        <thead><tr><th>Mode</th><th>When</th><th>Behavior</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><code class="inline">mock</code> (default)</td>
+            <td>Missing/invalid env or explicit mock</td>
+            <td>Deterministic in-memory / mock modules; zero Supabase writes</td>
+          </tr>
+          <tr>
+            <td><code class="inline">supabase</code></td>
+            <td><code class="inline">VITE_SEO_DATA_MODE=supabase</code> + valid URL/anon key</td>
+            <td>Real PostgREST/RPC calls with user JWT</td>
+          </tr>
+        </tbody>
+      </table>
+      <pre>// Conceptual
+runWithServiceAdapter({
+  label: "auditService.fetchLatest",
+  mock: () => mockFetch…(),
+  supabase: () => supabaseFetch…(),
+  fallbackToMockOnError: true,   // default for reads
+  // writes often set false so real errors surface
+})</pre>
+
+      <h2>Write pattern (guarded RPCs)</h2>
+      <p>
+        Status machines never do <code class="inline">update({ status })</code> from the client.
+        They call a SECURITY DEFINER RPC and use a <strong>non-masking</strong> write helper
+        so backend denials are shown, not silently replaced by mock success.
+      </p>
+      <div class="pipeline">
+        <span class="pipe">UI action</span>
+        <span class="pipe-arrow">→</span>
+        <span class="pipe">public *Service</span>
+        <span class="pipe-arrow">→</span>
+        <span class="pipe accent">run*Write helper</span>
+        <span class="pipe-arrow">→</span>
+        <span class="pipe">seo*SupabaseService.rpc(…)</span>
+      </div>
+
+      <h2>Key service files</h2>
+      <table>
+        <thead><tr><th>Public service</th><th>Supabase implementation</th></tr></thead>
+        <tbody>
+          <tr><td>websiteService</td><td>seoWebsiteSupabaseService</td></tr>
+          <tr><td>businessOnboardingService</td><td>seoBusinessOnboardingSupabaseService</td></tr>
+          <tr><td>auditService / recommendationService</td><td>seoAudit… / seoRecommendation…</td></tr>
+          <tr><td>approvalService</td><td>seoApprovalSupabaseService</td></tr>
+          <tr><td>contentStudioService</td><td>seoContentStudioSupabaseService</td></tr>
+          <tr><td>performanceService</td><td>seoPagePerformanceSupabaseService</td></tr>
+          <tr><td>offPageService</td><td>seoOffPageAuthoritySupabaseService</td></tr>
+          <tr><td>aiVisibilityService</td><td>seoAiVisibilitySupabaseService</td></tr>
+          <tr><td>crawlService</td><td>seoCrawlSupabaseService</td></tr>
+          <tr><td>ownershipVerificationService</td><td>seoOwnershipVerificationSupabaseService</td></tr>
+        </tbody>
+      </table>
+
+      <h2>Wiring phases (summary)</h2>
+      <ul>
+        <li><strong>13A–13F</strong> — foundation through dashboard/admin read-only</li>
+        <li><strong>14A–14B</strong> — Page Performance + Decline Diagnosis</li>
+        <li><strong>15A–15D</strong> — Stage 6 reads + opportunity/campaign writes</li>
+        <li><strong>16B+</strong> — auth protection, crawl UI, ownership UI</li>
+      </ul>
+
+      <p class="footer-note">
+        Master plan: <a href="../markdown/SERVICE_LAYER_WIRING_PLAN.md">SERVICE_LAYER_WIRING_PLAN.md</a>.
+      </p>
+    </main>
+  </div>
+  <script>window.DOC_PAGE = "service-layer.html"; window.DOC_PREFIX = "../";</script>
+  <script src="../assets/nav.js"></script>
+</body>
+</html>

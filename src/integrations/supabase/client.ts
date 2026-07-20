@@ -1,8 +1,10 @@
 import { createClient } from "@supabase/supabase-js";
 import { getSupabaseAnonKey, getSupabaseUrl } from "@/config/runtimeConfig";
 
-// Points at the SAME Supabase project as the main Digibility app, so SEO
-// reuses Digibility's existing users/auth instead of a separate auth system.
+// Points at the dedicated SEO Supabase project. In production, Digibility Core
+// remains the upstream identity provider and the one-time bridge establishes a
+// normal refreshable session in this project. TEST/local standalone auth stays
+// available when bridge configuration is intentionally absent.
 //
 // Frontend-safe by design: only the public URL + anon key are ever read here
 // (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY). The service role key must

@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Request sequences — SEO docs</title>
+  <link rel="stylesheet" href="../assets/styles.css" />
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar" id="sidebar"></aside>
+    <main class="content">
+      <div class="topbar">
+        <div class="crumb"><a href="../index.html">docs</a> / request sequences</div>
+        <span class="badge info">API / RPC paths</span>
+      </div>
+
+      <h1>Request sequences</h1>
+      <p class="lead">
+        End-to-end request paths for the most important customer and worker operations.
+        Each sequence names the UI entry, service, RPC/table, and who may call it.
+      </p>
+
+      <div class="toc">
+        <strong>Sequences on this page</strong>
+        <ol>
+          <li><a href="#login">Customer login &amp; route gate</a></li>
+          <li><a href="#read">Typical authenticated read</a></li>
+          <li><a href="#approval">Approval queue transition</a></li>
+          <li><a href="#content">Content Studio transition</a></li>
+          <li><a href="#opportunity">Authority opportunity transition</a></li>
+          <li><a href="#campaign">Campaign create + approval machine</a></li>
+          <li><a href="#crawl">Crawl request / cancel / poll</a></li>
+          <li><a href="#ownership">Ownership initiate / recheck / revoke</a></li>
+          <li><a href="#worker-claim">Worker job claim (service role)</a></li>
+        </ol>
+      </div>
+
+      <h2 id="login">1. Customer login &amp; route gate</h2>
+      <div class="flow">
+        <div class="flow-step">
+          <div class="flow-num">A</div>
+          <div class="flow-body">
+            <strong>Anonymous hits <code class="inline">/seo/audit</code> (Supabase mode)</strong>
+            <p><code class="inline">ProtectedRoute</code> finds no session → redirect to <code class="inline">/seo/login?returnTo=/seo/audit</code>. No product content rendered.</p>
+          </div>
+        </div>
+        <div class="arrow-down">↓</div>
+        <div class="flow-step">
+          <div class="flow-num">B</div>
+          <div class="flow-body">
+            <strong>Sign-in on chromeless login page</strong>
+            <p>Supabase Auth email/password (existing Digibility users). Session JWT stored by supabase-js.</p>
+          </div>
+        </div>
+        <div class="arrow-down">↓</div>
+        <div class="flow-step">
+          <div class="flow-num">C</div>
+          <div class="flow-body">
+            <strong><code class="inline">useSeoAccess()</code> checklist</strong>
+            <p>
+              1) session · 2) <code class="inline">has_seo_module_access</code> ·
+              3) workspace membership · 4) active website (unless <code class="inline">allowSetup</code>).
+              Admin preview also requires <code class="inline">seo_is_global_admin</code>.
+            </p>
+          </div>
+        </div>
+        <div class="arrow-down">↓</div>
+        <div class="flow-step">
+          <div class="flow-num">D</div>
+          <div class="flow-body">
+            <strong>Deep-link restored</strong>
+            <p>User lands on original <code class="inline">returnTo</code>. Sign-out clears user-scoped React Query cache + active website.</p>
+            <div class="flow-meta"><span class="badge ok">Mock mode bypasses this gate</span></div>
+          </div>
+        </div>
+      </div>
+
+      <h2 id="read">2. Typical authenticated read</h2>
+      <pre>Page
+  → hook (useQuery)
+    → *Service.fetch…()
+      → runWithServiceAdapter({ mock, supabase })
+        → seo*SupabaseService
+          → supabase.from('seo_…').select(…).eq('website_id', …)
+            → RLS: workspace member only
+              → map rows → UI types</pre>
+      <p>Example tables: <code class="inline">seo_audit_runs</code>, <code class="inline">seo_page_inventory</code>, <code class="inline">seo_authority_opportunities</code>.</p>
+
+      <h2 id="approval">3. Approval queue transition</h2>
+      <div class="flow">
+        <div class="flow-step">
+          <div class="flow-num">1</div>
+          <div class="flow-body">
+            <strong>UI: <code class="inline">/seo/approvals</code></strong>
+            <p>User clicks Approve / Reject / Request changes (role-gated).</p>
+          </div>
+        </div>
+        <div class="arrow-down">↓</div>
+        <div class="flow-step">
+          <div class="flow-num">2</div>
+          <div class="flow-body">
+            <strong>Service</strong>
+            <p><code class="inline">approvalService</code> → non-masking write helper → <code class="inline">supabase.rpc('seo_approval_transition', …)</code></p>
+          </div>
+        </div>
+        <div class="arrow-down">↓</div>
+        <div class="flow-step">
+          <div class="flow-num">3</div>
+          <div class="flow-body">
+            <strong>RPC (SECURITY DEFINER)</strong>
+            <p>Validates membership + role + legal status transition. Updates <code class="inline">seo_approval_items</code>, appends <code class="inline">seo_approval_activity</code>.</p>
+            <div class="flow-meta"><span class="badge warn">Never a direct status UPDATE from the client</span></div>
+          </div>
+        </div>
+      </div>
+
+      <h2 id="content">4. Content Studio transition</h2>
+      <p>Same pattern as approval:</p>
+      <pre>ContentStudioPage → contentStudioService → rpc('seo_content_transition')
+  → updates opportunity / draft / section status
+  → appends seo_content_activity
+  → format assets may reference Storage bucket seo-content-assets</pre>
+
+      <h2 id="opportunity">5. Authority opportunity transition</h2>
+      <table>
+        <thead><tr><th>Actor</th><th>Call</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>Owner / admin / team_member (per action matrix)</td>
+            <td><code class="inline">seo_authority_opportunity_transition</code></td>
+            <td>Legal moves across statuses like suggested → accepted → … → avoided</td>
+          </tr>
+          <tr>
+            <td>Client</td>
+            <td>—</td>
+            <td>Read-only UI; backend also rejects unauthorized roles</td>
+          </tr>
+        </tbody>
+      </table>
+      <pre>OpportunityCard action
+  → offPageService.* (runAuthorityOpportunityWrite)
+    → rpc('seo_authority_opportunity_transition')
+      → seo_authority_opportunities.status
+      → +1 seo_authority_activity row (actor_role_snapshot)</pre>
+
+      <h2 id="campaign">6. Campaign create + approval machine</h2>
+      <h3>6a. Create draft campaign (atomic)</h3>
+      <div class="flow">
+        <div class="flow-step">
+          <div class="flow-num">1</div>
+          <div class="flow-body">
+            <strong>CampaignBuilder “Create campaign”</strong>
+            <p>Role-gated via <code class="inline">RoleGateTooltip</code> (client cannot even fire the request).</p>
+          </div>
+        </div>
+        <div class="arrow-down">↓</div>
+        <div class="flow-step">
+          <div class="flow-num">2</div>
+          <div class="flow-body">
+            <strong>Single RPC</strong>
+            <p><code class="inline">seo_authority_campaign_create</code> creates in one transaction:</p>
+            <p><code class="inline">seo_authority_campaigns</code> (draft) + junction rows + one task per opportunity.</p>
+          </div>
+        </div>
+      </div>
+
+      <h3>6b. Approval state machine</h3>
+      <div class="pipeline">
+        <span class="pipe">draft</span><span class="pipe-arrow">submit →</span>
+        <span class="pipe accent">pending_approval</span><span class="pipe-arrow">approve →</span>
+        <span class="pipe">approved</span>
+      </div>
+      <div class="pipeline">
+        <span class="pipe accent">pending_approval</span><span class="pipe-arrow">reject →</span>
+        <span class="pipe">rejected</span><span class="pipe-arrow">return_to_draft →</span>
+        <span class="pipe">draft</span>
+      </div>
+      <p>All transitions: <code class="inline">seo_authority_campaign_transition</code>. Approve/reject = owner/admin only.</p>
+
+      <h2 id="crawl">7. Crawl request / cancel / poll</h2>
+      <div class="flow">
+        <div class="flow-step">
+          <div class="flow-num">1</div>
+          <div class="flow-body">
+            <strong>UI: <code class="inline">/seo/audit</code> → Start crawl</strong>
+            <p>Owner/admin/team_member (client read-only). Two-step confirm.</p>
+          </div>
+        </div>
+        <div class="arrow-down">↓</div>
+        <div class="flow-step">
+          <div class="flow-num">2</div>
+          <div class="flow-body">
+            <strong>Orchestration RPC</strong>
+            <p><code class="inline">seo_crawl_request_audit</code> atomically creates a linked <code class="inline">seo_audit_runs</code> row + <code class="inline">seo_crawl_jobs</code> row and returns <em>both</em> ids (never “latest run” guessing).</p>
+          </div>
+        </div>
+        <div class="arrow-down">↓</div>
+        <div class="flow-step">
+          <div class="flow-num">3</div>
+          <div class="flow-body">
+            <strong>UI polls Supabase only</strong>
+            <p><code class="inline">useWebsiteCrawl</code> reads job status every ~4s while active; pauses when tab hidden; stops at terminal.</p>
+            <div class="flow-meta"><span class="badge info">Supabase = single status source</span></div>
+          </div>
+        </div>
+        <div class="arrow-down">↓</div>
+        <div class="flow-step">
+          <div class="flow-num">4</div>
+          <div class="flow-body">
+            <strong>Cancel (optional)</strong>
+            <p><code class="inline">seo_crawl_cancel</code> → <code class="inline">cancellation_requested</code> → worker ack → <code class="inline">cancelled</code>.</p>
+          </div>
+        </div>
+      </div>
+
+      <h2 id="ownership">8. Ownership initiate / recheck / revoke</h2>
+      <table>
+        <thead><tr><th>Action</th><th>RPC</th><th>Who</th></tr></thead>
+        <tbody>
+          <tr><td>Start verification</td><td><code class="inline">seo_ownership_verification_initiate</code></td><td>owner / admin</td></tr>
+          <tr><td>Check again (reuse token)</td><td><code class="inline">seo_ownership_verification_recheck</code></td><td>owner / admin</td></tr>
+          <tr><td>Rotate challenge</td><td><code class="inline">seo_ownership_verification_reverify</code></td><td>owner / admin</td></tr>
+          <tr><td>Revoke</td><td><code class="inline">seo_ownership_verification_revoke</code></td><td>owner / admin</td></tr>
+          <tr><td>Read status</td><td>RLS SELECT on <code class="inline">seo_ownership_verifications</code></td><td>any workspace member</td></tr>
+        </tbody>
+      </table>
+      <p>UI: <code class="inline">OwnershipVerificationPanel</code> on <code class="inline">/seo/websites</code>. No status RPC — absence of a row means unverified. DNS resolution is <em>not</em> done in these customer RPCs; the worker does that.</p>
+
+      <h2 id="worker-claim">9. Worker job claim (service role)</h2>
+      <pre>crawler-worker (service_role)
+  → rpc('seo_crawl_claim_job')          -- FOR UPDATE SKIP LOCKED + lease_token
+  → discovery / extraction / issues
+  → rpc('seo_crawl_worker_record_*')
+  → rpc('seo_crawl_worker_publish_results')
+  → rpc('seo_crawl_worker_complete' | partial | fail | …)
+
+verify-once mode:
+  → rpc('seo_ownership_verification_claim')
+  → DNS TXT resolve
+  → rpc('seo_ownership_verification_record_result')</pre>
+      <div class="callout warn">
+        Authenticated/anon EXECUTE is revoked on these worker RPCs. If a browser somehow called them, PostgREST would deny.
+      </div>
+
+      <p class="footer-note">
+        See also <a href="data-flows.html">Data-flow sequences</a> and
+        <a href="crawler.html">Crawler pipeline</a>.
+      </p>
+    </main>
+  </div>
+  <script>window.DOC_PAGE = "request-flows.html"; window.DOC_PREFIX = "../";</script>
+  <script src="../assets/nav.js"></script>
+</body>
+</html>

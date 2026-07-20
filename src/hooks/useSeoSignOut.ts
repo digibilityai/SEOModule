@@ -1,14 +1,17 @@
-// Phase 16B — customer sign-out. Uses Supabase's own sign-out, then clears
-// user-scoped frontend state and returns to the login route. Handles the known
-// benign case where the global-revocation network call aborts while the local
-// session is still cleared (not a real failure); only reports failure when the
-// local session actually persists. Never inspects/prints session storage.
+// Customer sign-out with Digibility linked logout.
+// Clears SEO session + user-scoped UI state, then cascades to Digibility
+// /logout so both GoTrue sessions are removed and SEO is not auto-relaunched.
 import { useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useActiveWebsite } from "@/contexts/ActiveWebsiteContext";
-import { SEO_LOGIN_PATH } from "@/routes/routeAccess";
+import { getDigibilityAppUrl, hasDigibilityBridgeConfig } from "@/config/runtimeConfig";
+import {
+  SEO_LOGIN_PATH,
+  SEO_LOGOUT_PATH,
+  buildDigibilityLogoutCascadeUrl,
+} from "@/routes/routeAccess";
 
 export function useSeoSignOut() {
   const navigate = useNavigate();
@@ -16,14 +19,19 @@ export function useSeoSignOut() {
   const { setActiveWebsiteId } = useActiveWebsite();
 
   return useCallback(async (): Promise<boolean> => {
+    // Prefer the dedicated logout route so Digibility cascade is consistent
+    // whether Sign out is clicked or Digibility redirects here.
+    if (hasDigibilityBridgeConfig() || getDigibilityAppUrl()) {
+      window.location.assign(SEO_LOGOUT_PATH);
+      return true;
+    }
+
     try {
       await supabase.auth.signOut();
     } catch {
-      // The global-scope logout request can abort; the local session removal
-      // still happens. Fall through and verify below.
+      // Local session removal may still succeed.
     }
 
-    // Genuine-failure check: only fail if the local session is still present.
     let localCleared = true;
     try {
       const { data } = await supabase.auth.getSession();
@@ -32,12 +40,16 @@ export function useSeoSignOut() {
       localCleared = true;
     }
 
-    // Clear user-scoped frontend state regardless, so nothing leaks to a next
-    // user, then return to the customer login route.
     setActiveWebsiteId(null);
     queryClient.clear();
-    navigate(SEO_LOGIN_PATH, { replace: true });
 
+    const digibilityLogout = buildDigibilityLogoutCascadeUrl();
+    if (digibilityLogout.startsWith("http")) {
+      window.location.assign(digibilityLogout);
+      return localCleared;
+    }
+
+    navigate(SEO_LOGIN_PATH, { replace: true });
     return localCleared;
   }, [navigate, queryClient, setActiveWebsiteId]);
 }

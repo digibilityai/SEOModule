@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Data-flow sequences — SEO docs</title>
+  <link rel="stylesheet" href="../assets/styles.css" />
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar" id="sidebar"></aside>
+    <main class="content">
+      <div class="topbar">
+        <div class="crumb"><a href="../index.html">docs</a> / data flows</div>
+        <span class="badge info">Tables &amp; state</span>
+      </div>
+
+      <h1>Data-flow sequences</h1>
+      <p class="lead">
+        How data is created, transformed, and published across modules —
+        from website onboarding through crawl publishing and Stage 6 workflows.
+      </p>
+
+      <div class="toc">
+        <strong>Flows</strong>
+        <ol>
+          <li><a href="#anchor">Website as the data anchor</a></li>
+          <li><a href="#audit-manual">Manual / seeded audit path</a></li>
+          <li><a href="#audit-crawl">Live crawl → audit / inventory publish</a></li>
+          <li><a href="#recs-approval">Recommendations → approval</a></li>
+          <li><a href="#content">Content Studio pipeline</a></li>
+          <li><a href="#perf-decline">Page performance → decline diagnosis</a></li>
+          <li><a href="#stage6">Off-page + AI visibility</a></li>
+          <li><a href="#ownership-data">Ownership verification ledger</a></li>
+        </ol>
+      </div>
+
+      <h2 id="anchor">1. Website as the data anchor</h2>
+      <pre>seo_workspaces
+   └── seo_websites  (website_url unique per workspace)
+          ├── seo_business_onboarding     (1:1 context)
+          ├── seo_connection_status      (integration placeholders)
+          └── [all feature tables keyed by website_id + website_url snapshot]</pre>
+      <p>
+        Creating a website is the prerequisite for website-scoped routes
+        (<code class="inline">requireWebsite</code>). Setup routes
+        (<code class="inline">/seo/websites</code> and <code class="inline">/seo/onboarding</code>
+        remain reachable without an active website.
+      </p>
+
+      <h2 id="audit-manual">2. Manual / seeded audit path (pre-crawler / demo)</h2>
+      <div class="pipeline">
+        <span class="pipe">seo_run_audit</span>
+        <span class="pipe-arrow">→</span>
+        <span class="pipe accent">seo_audit_runs (running)</span>
+        <span class="pipe-arrow">→</span>
+        <span class="pipe">seed / future worker fills seo_audit_issues</span>
+        <span class="pipe-arrow">→</span>
+        <span class="pipe">seo_recommendations</span>
+      </div>
+      <p>
+        Historically <code class="inline">seo_run_audit</code> only created a running run;
+        completion required a trusted backend. The crawler publishing path (below) is the
+        real completion path for crawled sites.
+      </p>
+
+      <h2 id="audit-crawl">3. Live crawl → audit / inventory publish</h2>
+      <p>This is the most important end-to-end data sequence in the repo today.</p>
+      <div class="flow">
+        <div class="flow-step">
+          <div class="flow-num">1</div>
+          <div class="flow-body">
+            <strong>Enqueue (customer)</strong>
+            <p><code class="inline">seo_crawl_request_audit</code> writes:</p>
+            <p><code class="inline">seo_audit_runs</code> (running) + <code class="inline">seo_crawl_jobs</code> (queued) linked by <code class="inline">audit_run_id</code>.</p>
+          </div>
+        </div>
+        <div class="arrow-down">↓</div>
+        <div class="flow-step">
+          <div class="flow-num">2</div>
+          <div class="flow-body">
+            <strong>Claim + execute (worker)</strong>
+            <p>Claim issues <code class="inline">lease_token</code>. Writes go to crawler-domain tables only at first:</p>
+            <div class="flow-meta">
+              <span class="badge muted">seo_crawl_events</span>
+              <span class="badge muted">seo_crawl_attempts</span>
+              <span class="badge muted">seo_crawl_discovered_pages</span>
+              <span class="badge muted">seo_crawl_sitemaps</span>
+              <span class="badge muted">seo_crawl_page_snapshots</span>
+              <span class="badge muted">seo_crawl_issues</span>
+            </div>
+          </div>
+        </div>
+        <div class="arrow-down">↓</div>
+        <div class="flow-step">
+          <div class="flow-num">3</div>
+          <div class="flow-body">
+            <strong>Publish (worker, transactional)</strong>
+            <p><code class="inline">seo_crawl_worker_publish_results</code> maps crawler findings into product tables:</p>
+            <div class="flow-meta">
+              <span class="badge ok">seo_page_inventory</span>
+              <span class="badge ok">seo_audit_issues</span>
+              <span class="badge info">seo_crawl_publications</span>
+              <span class="badge muted">seo_audit_runs → completed</span>
+            </div>
+            <p>Uses deterministic 29-code map <code class="inline">seo_crawl_issue_audit_map</code>. Does <strong>not</strong> write recommendations or Page Performance snapshots.</p>
+          </div>
+        </div>
+        <div class="arrow-down">↓</div>
+        <div class="flow-step">
+          <div class="flow-num">4</div>
+          <div class="flow-body">
+            <strong>UI consumes existing services</strong>
+            <p>Audit page + Page Performance page re-fetch inventory/issues; crawl panel shows terminal status + freshness.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="callout info">
+        <strong>Stale-job protection:</strong> an older crawl cannot overwrite newer inventory facts.
+        Manual/user-owned inventory rows are preserved; missing pages are never auto-deleted as “removed”.
+      </div>
+
+      <h2 id="recs-approval">4. Recommendations → approval</h2>
+      <pre>seo_audit_issues
+   └── seo_recommendations  (linked to audit_run / issue where relevant)
+          └── seo_approval_items
+                 ├── seo_approval_comments
+                 └── seo_approval_activity   (append-only timeline)</pre>
+      <p>Status changes for approval items flow only through <code class="inline">seo_approval_transition</code>.</p>
+
+      <h2 id="content">5. Content Studio pipeline</h2>
+      <div class="pipeline">
+        <span class="pipe accent">opportunity</span>
+        <span class="pipe-arrow">→</span>
+        <span class="pipe">keyword plan</span>
+        <span class="pipe-arrow">→</span>
+        <span class="pipe">competitor summaries</span>
+        <span class="pipe-arrow">→</span>
+        <span class="pipe">wireframe</span>
+        <span class="pipe-arrow">→</span>
+        <span class="pipe">format inputs</span>
+        <span class="pipe-arrow">→</span>
+        <span class="pipe accent">draft + sections</span>
+      </div>
+      <p>
+        Supporting tables: revisions, comments, activity, assets (metadata;
+        bytes in private Storage bucket <code class="inline">seo-content-assets</code>).
+        Transitions: <code class="inline">seo_content_transition</code>.
+      </p>
+
+      <h2 id="perf-decline">6. Page performance → decline diagnosis</h2>
+      <pre>seo_page_inventory
+   ├── seo_page_keywords
+   └── seo_page_performance_snapshots
+          └── view: seo_page_performance_latest
+                 └── seo_decline_diagnoses
+                        ├── seo_decline_diagnosis_evidence
+                        └── view: seo_decline_diagnoses_current</pre>
+      <div class="callout warn">
+        <strong>Locked module:</strong> Page Performance snapshot writes are not produced by the crawler.
+        Snapshots are expected from GSC/GA4 later. Decline diagnosis can be created via
+        <code class="inline">seo_create_decline_diagnosis_from_snapshot</code> (backend RPC).
+      </div>
+
+      <h2 id="stage6">7. Off-page + AI visibility</h2>
+      <h3>Authority</h3>
+      <pre>seo_authority_opportunities
+        │  (status via seo_authority_opportunity_transition)
+        ▼
+seo_authority_campaigns  ←── seo_authority_campaign_create (atomic)
+        ├── seo_authority_campaign_opportunities  (junction)
+        ├── seo_authority_campaign_tasks
+        └── seo_authority_activity                (append-only)</pre>
+      <h3>AI Visibility / GEO</h3>
+      <pre>seo_ai_prompt_tracking   (time-series visibility for prompts)
+seo_ai_content_gaps
+seo_ai_mentions          (brand / competitor mention rows)</pre>
+      <p>Reads are wired; AI Visibility <em>writes</em> and real LLM ingestion remain deferred (preview / <code class="inline">manual_seed</code> data).</p>
+
+      <h2 id="ownership-data">8. Ownership verification ledger</h2>
+      <pre>Customer path (no DNS yet):
+  seo_ownership_verifications  ← initiate / recheck / reverify / revoke RPCs
+  seo_ownership_verification_events  (append-only, customer-readable)
+
+Worker path (DNS-TXT):
+  seo_ownership_verification_claims  (internal lease ledger; not customer-readable)
+    claim → resolve DNS → record_result → verification status verified|failed</pre>
+      <p>
+        <strong>Absence of a verification row = unverified.</strong>
+        Challenge token is shown to the customer as the DNS TXT value; lease tokens never leave the worker/admin path.
+      </p>
+
+      <p class="footer-note">
+        Table catalog: <a href="database.html">Tables &amp; RPCs</a>.
+        Crawl detail: <a href="crawler.html">Crawler pipeline</a>.
+      </p>
+    </main>
+  </div>
+  <script>window.DOC_PAGE = "data-flows.html"; window.DOC_PREFIX = "../";</script>
+  <script src="../assets/nav.js"></script>
+</body>
+</html>

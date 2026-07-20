@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Crawler pipeline — SEO docs</title>
+  <link rel="stylesheet" href="../assets/styles.css" />
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar" id="sidebar"></aside>
+    <main class="content">
+      <div class="topbar">
+        <div class="crumb"><a href="../index.html">docs</a> / crawler</div>
+        <span class="badge ok">16C–16H · TEST accepted</span>
+      </div>
+
+      <h1>Crawler pipeline</h1>
+      <p class="lead">
+        Hybrid control plane + dedicated Node worker. The browser never crawls;
+        it only enqueues/cancels/observes. The worker owns fetch, discovery,
+        extraction, issue detection, and publishing.
+      </p>
+
+      <h2>Runtime decision (ADR)</h2>
+      <div class="lane">
+        <div class="lane-box"><b>Frontend</b>Request / cancel / poll<br/>RLS reads</div>
+        <div class="lane-box"><b>Control plane</b>Guarded SECDEF RPCs<br/>authz + enqueue</div>
+        <div class="lane-box"><b>Worker</b>service_role<br/>claim → execute → publish</div>
+        <div class="lane-box"><b>Product tables</b>Inventory + audit issues<br/>existing shapes</div>
+      </div>
+      <p>
+        Rejected: Edge Function as crawl runtime; worker as customer-facing API.
+        See <a href="../markdown/ADR_CRAWLER_RUNTIME_ARCHITECTURE.md">ADR_CRAWLER_RUNTIME_ARCHITECTURE.md</a>.
+      </p>
+
+      <h2>Phase timeline</h2>
+      <table>
+        <thead><tr><th>Phase</th><th>Deliverable</th></tr></thead>
+        <tbody>
+          <tr><td>16C / 1A</td><td>Job/attempt/event tables + request/cancel/claim RPCs</td></tr>
+          <tr><td>16D / 1B</td><td>Worker skeleton + lease_token lifecycle</td></tr>
+          <tr><td>16E / 1C</td><td>SSRF-safe discovery, robots, sitemap, HTML links</td></tr>
+          <tr><td>16F / 1D</td><td>Extraction + deterministic issue registry (no second fetch)</td></tr>
+          <tr><td>16G / 1E</td><td>Transactional publish → inventory + audit issues</td></tr>
+          <tr><td>16H / 1F</td><td>Customer UI on <code class="inline">/seo/audit</code> (operator accepted on TEST)</td></tr>
+        </tbody>
+      </table>
+
+      <h2>End-to-end sequence</h2>
+      <div class="flow">
+        <div class="flow-step">
+          <div class="flow-num">1</div>
+          <div class="flow-body">
+            <strong>Customer: Start crawl</strong>
+            <p><code class="inline">crawlService</code> → <code class="inline">seo_crawl_request_audit</code> → returns <code class="inline">{auditRunId, crawlJobId}</code>.</p>
+          </div>
+        </div>
+        <div class="arrow-down">↓</div>
+        <div class="flow-step">
+          <div class="flow-num">2</div>
+          <div class="flow-body">
+            <strong>Worker: claim</strong>
+            <p><code class="inline">seo_crawl_claim_job</code> with <code class="inline">FOR UPDATE SKIP LOCKED</code>; receives lease token; heartbeats while working.</p>
+          </div>
+        </div>
+        <div class="arrow-down">↓</div>
+        <div class="flow-step">
+          <div class="flow-num">3</div>
+          <div class="flow-body">
+            <strong>Discovery</strong>
+            <p>Safe HTTP transport (DNS-rebinding checks), robots.txt, sitemap, same-origin <code class="inline">&lt;a&gt;</code> BFS under budgets → discovered pages + sitemaps tables.</p>
+          </div>
+        </div>
+        <div class="arrow-down">↓</div>
+        <div class="flow-step">
+          <div class="flow-num">4</div>
+          <div class="flow-body">
+            <strong>Extraction + issues</strong>
+            <p>Facts from already-fetched HTML (title, headings, canonical, robots directives, hashes, …). Versioned rule registry → page + site duplicate issues.</p>
+          </div>
+        </div>
+        <div class="arrow-down">↓</div>
+        <div class="flow-step">
+          <div class="flow-num">5</div>
+          <div class="flow-body">
+            <strong>Publish</strong>
+            <p><code class="inline">seo_crawl_worker_publish_results</code> upserts inventory + audit issues, records publications, completes audit run. No recommendation writes.</p>
+          </div>
+        </div>
+        <div class="arrow-down">↓</div>
+        <div class="flow-step">
+          <div class="flow-num">6</div>
+          <div class="flow-body">
+            <strong>UI observes</strong>
+            <p>Polling stops at terminal status; links to Audit results + Page Inventory. Cancel path finalizes linked running audits as failed when appropriate.</p>
+          </div>
+        </div>
+      </div>
+
+      <h2>Status model (customer-visible)</h2>
+      <div class="pipeline">
+        <span class="pipe">Queued</span><span class="pipe-arrow">→</span>
+        <span class="pipe">Preparing</span><span class="pipe-arrow">→</span>
+        <span class="pipe accent">Crawling</span><span class="pipe-arrow">→</span>
+        <span class="pipe">Completed / Partial / Failed / Cancelled</span>
+      </div>
+      <p>Also: Waiting to retry, Cancelling. Internal attempt diagnostics stay on <code class="inline">seo_crawl_attempts</code> (not customer UI).</p>
+
+      <h2>Security guardrails</h2>
+      <ul>
+        <li>http/https only; block private/link-local/metadata ranges; re-validate after DNS and each redirect</li>
+        <li>Honor robots.txt (RFC 9309); XXE-safe sitemap parsing</li>
+        <li>Budgets: max pages/depth/timeout/response size; identifiable User-Agent</li>
+        <li>Lease-token ownership: stale workers cannot complete another’s job</li>
+        <li>Data minimization: no full HTML/scripts/JSON-LD stored in snapshots</li>
+      </ul>
+
+      <h2>Worker package layout</h2>
+      <pre>crawler-worker/
+  src/index.ts, worker.ts, processor.ts, jobGateway.ts
+  src/discovery/*     — transport, robots, sitemap, links, budgets
+  src/extraction/*    — pageExtractor, issueRegistry, issueDetector
+  src/publishing/*    — publisher
+  src/verification/*  — DNS-TXT ownership (verify-once mode)
+  Dockerfile          — non-root; not production-deployed yet</pre>
+
+      <div class="callout warn">
+        <strong>Not done:</strong> production deployment, usage/plan enforcement at enqueue,
+        recommendation generation from crawl findings, P1b verified-only enqueue gate.
+        Real public-network crawling was covered mainly by fixtures/deterministic tests.
+      </div>
+
+      <p class="footer-note">
+        Sign-offs:
+        <a href="../markdown/CRAWLER_PHASE_1A_DATA_CONTRACT.md">1A</a> ·
+        <a href="../markdown/CRAWLER_PHASE_1B_WORKER_SKELETON.md">1B</a> ·
+        <a href="../markdown/CRAWLER_PHASE_1C_DISCOVERY_ENGINE.md">1C</a> ·
+        <a href="../markdown/CRAWLER_PHASE_1D_EXTRACTION_AND_ISSUE_DETECTION.md">1D</a> ·
+        <a href="../markdown/CRAWLER_PHASE_1E_PAGE_INVENTORY_AUDIT_PUBLISHING.md">1E</a> ·
+        <a href="../markdown/PHASE_16H_CRAWLER_CUSTOMER_UI_SIGNOFF.md">16H UI</a>.
+      </p>
+    </main>
+  </div>
+  <script>window.DOC_PAGE = "crawler.html"; window.DOC_PREFIX = "../";</script>
+  <script src="../assets/nav.js"></script>
+</body>
+</html>

@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Digibility SEO Intelligence — Documentation</title>
+  <link rel="stylesheet" href="assets/styles.css" />
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar" id="sidebar"></aside>
+    <main class="content">
+      <div class="topbar">
+        <div class="crumb">docs / overview</div>
+        <span class="badge ok">Offline · open this file in any browser</span>
+      </div>
+
+      <h1>Digibility SEO Intelligence</h1>
+      <p class="lead">
+        Deep, browseable documentation for how this standalone SEO module is built:
+        architecture, request sequences, data flows, tables, and workers —
+        consolidated from the project’s markdown corpus into one <code class="inline">docs/</code> folder.
+      </p>
+
+      <div class="callout info">
+        <strong>How to browse:</strong> double-click <code class="inline">docs/index.html</code>
+        (or open it from Explorer). No local server is required. All links are relative.
+      </div>
+
+      <div class="card-grid">
+        <article class="card">
+          <h3>Overall architecture</h3>
+          <p>No-BFF model: React UI → Supabase (RLS) → optional crawler / DNS workers.</p>
+          <a class="card-link" href="pages/architecture.html">Open →</a>
+        </article>
+        <article class="card">
+          <h3>Request sequences</h3>
+          <p>Login, crawl request, approval transitions, campaign writes, ownership RPCs.</p>
+          <a class="card-link" href="pages/request-flows.html">Open →</a>
+        </article>
+        <article class="card">
+          <h3>Data-flow sequences</h3>
+          <p>How rows move across websites, audits, inventory, Stage 6, and worker tables.</p>
+          <a class="card-link" href="pages/data-flows.html">Open →</a>
+        </article>
+        <article class="card">
+          <h3>Tables &amp; RPCs</h3>
+          <p>51 tables across Stages 1–6, crawler, and ownership verification.</p>
+          <a class="card-link" href="pages/database.html">Open →</a>
+        </article>
+      </div>
+
+      <h2>What this product is</h2>
+      <p>
+        Digibility SEO Intelligence is a <strong>paid add-on module</strong> for Digibility’s
+        visibility platform. It runs as an independent Vite + React + TypeScript app during
+        development, then plugs into Digibility Core later — reusing auth, design system,
+        and platform principles without rebuilding them.
+      </p>
+      <p>
+        Positioning: an <strong>SEO execution cockpit</strong> (audit → recommendations →
+        approval → content → performance → diagnosis → off-page → AI visibility), not a
+        keyword-research clone.
+      </p>
+
+      <h2>Architecture in one picture</h2>
+      <div class="pipeline">
+        <span class="pipe accent">Browser (React)</span>
+        <span class="pipe-arrow">→</span>
+        <span class="pipe">Service adapter</span>
+        <span class="pipe-arrow">→</span>
+        <span class="pipe accent">Supabase PostgREST + RLS</span>
+        <span class="pipe-arrow">→</span>
+        <span class="pipe">Postgres tables / RPCs</span>
+      </div>
+      <div class="pipeline">
+        <span class="pipe">Crawler worker</span>
+        <span class="pipe-arrow">⇄</span>
+        <span class="pipe accent">service_role RPCs</span>
+        <span class="pipe-arrow">→</span>
+        <span class="pipe">Crawl tables → publish → Audit / Page Inventory</span>
+      </div>
+      <div class="pipeline">
+        <span class="pipe">Ownership worker</span>
+        <span class="pipe-arrow">⇄</span>
+        <span class="pipe accent">DNS-TXT claim/result RPCs</span>
+        <span class="pipe-arrow">→</span>
+        <span class="pipe">seo_ownership_verifications</span>
+      </div>
+
+      <h2>Locked design decisions</h2>
+      <table>
+        <thead>
+          <tr><th>Decision</th><th>Meaning</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>No customer BFF</strong></td>
+            <td>Frontend talks to Supabase directly with the anon key. Authorization is Postgres RLS + guarded <code class="inline">SECURITY DEFINER</code> RPCs.</td>
+          </tr>
+          <tr>
+            <td><strong>Website is the core entity</strong></td>
+            <td>Every operational SEO record carries <code class="inline">website_id</code> + denormalized <code class="inline">website_url</code>.</td>
+          </tr>
+          <tr>
+            <td><strong>Mock / Supabase dual mode</strong></td>
+            <td><code class="inline">VITE_SEO_DATA_MODE</code> defaults to mock; Supabase mode falls back to mock on config/errors (writes can opt out of masking).</td>
+          </tr>
+          <tr>
+            <td><strong>SEO roles ≠ platform roles</strong></td>
+            <td>SEO roles live on <code class="inline">seo_workspace_members.seo_role</code>: owner / admin / team_member / client.</td>
+          </tr>
+          <tr>
+            <td><strong>Workers are trusted servers</strong></td>
+            <td>Service-role keys exist only in <code class="inline">crawler-worker/</code>, never in the browser.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h2>Quick module map</h2>
+      <table>
+        <thead>
+          <tr><th>Area</th><th>Backend</th><th>UI data</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Access, workspaces, websites, onboarding</td><td>Stage 1</td><td>Wired (Supabase)</td></tr>
+          <tr><td>Audit, recommendations, approval</td><td>Stage 2</td><td>Wired (+ crawler publishes issues)</td></tr>
+          <tr><td>Content Studio</td><td>Stage 3</td><td>Wired</td></tr>
+          <tr><td>Page Performance</td><td>Stage 4</td><td>Wired · <span class="badge ok">LOCKED</span></td></tr>
+          <tr><td>Decline Diagnosis</td><td>Stage 5</td><td>Wired</td></tr>
+          <tr><td>Off-Page Authority + AI Visibility</td><td>Stage 6</td><td>Reads + opportunity/campaign writes · <span class="badge ok">LOCKED (implemented scope)</span></td></tr>
+          <tr><td>Website crawler</td><td>Phases 16C–16H</td><td>Customer UI on <code class="inline">/seo/audit</code> · TEST accepted</td></tr>
+          <tr><td>Domain ownership (DNS-TXT)</td><td>P1a</td><td>UI on Websites · lock pending worker binary</td></tr>
+          <tr><td>Competitors / Roadmap / Reports</td><td>—</td><td><span class="badge muted">Mock only</span></td></tr>
+        </tbody>
+      </table>
+
+      <h2>Documentation layout</h2>
+      <pre>docs/
+  index.html                 ← you are here
+  assets/styles.css
+  assets/nav.js
+  pages/*.html               ← deep topic pages
+  markdown/*.md              ← all former root markdown docs (62 files)</pre>
+
+      <div class="callout warn">
+        <strong>Status note:</strong> Narrative status in these HTML pages is a readable
+        synthesis. For the authoritative live checkpoint, open
+        <a href="markdown/CURRENT_PROJECT_STATUS.md">CURRENT_PROJECT_STATUS.md</a>
+        or the <a href="pages/status.html">Current status</a> page.
+      </div>
+
+      <p class="footer-note">
+        Generated for local browsing from the Digibility SEO Module repository.
+        Original markdown sources live under <code class="inline">docs/markdown/</code>.
+      </p>
+    </main>
+  </div>
+  <script>window.DOC_PAGE = "index.html"; window.DOC_PREFIX = "";</script>
+  <script src="assets/nav.js"></script>
+</body>
+</html>

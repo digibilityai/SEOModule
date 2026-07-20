@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Tables &amp; RPCs — SEO docs</title>
+  <link rel="stylesheet" href="../assets/styles.css" />
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar" id="sidebar"></aside>
+    <main class="content">
+      <div class="topbar">
+        <div class="crumb"><a href="../index.html">docs</a> / database</div>
+        <span class="badge ok">~51 tables · TEST only</span>
+      </div>
+
+      <h1>Tables &amp; RPCs</h1>
+      <p class="lead">
+        Catalog of the SEO schema as implemented in additive migrations
+        <code class="inline">…120001</code>–<code class="inline">…120033</code>, grouped by stage.
+        Production has not been applied.
+      </p>
+
+      <h2>Totals (TEST)</h2>
+      <table>
+        <thead><tr><th>Bucket</th><th>Count / notes</th></tr></thead>
+        <tbody>
+          <tr><td>Stages 1–5</td><td>31 tables + views for latest performance / current decline</td></tr>
+          <tr><td>Stage 6</td><td>8 tables (authority + AI visibility)</td></tr>
+          <tr><td>Crawler 16C–16H</td><td>9 tables (+ mapping / publications)</td></tr>
+          <tr><td>P1a ownership</td><td>2 customer tables + 1 internal claims table</td></tr>
+          <tr><td>Storage</td><td>1 private bucket: <code class="inline">seo-content-assets</code></td></tr>
+        </tbody>
+      </table>
+
+      <h2 id="stage1">Stage 1 — Access / workspaces / websites</h2>
+      <table>
+        <thead><tr><th>Table</th><th>Purpose</th></tr></thead>
+        <tbody>
+          <tr><td><code class="inline">user_module_access</code></td><td>Entitlement for <code class="inline">seo</code> / <code class="inline">visibility</code></td></tr>
+          <tr><td><code class="inline">seo_plan_limits</code></td><td>Static plan catalog</td></tr>
+          <tr><td><code class="inline">seo_subscriptions</code></td><td>Module billing rows (gateway later)</td></tr>
+          <tr><td><code class="inline">seo_usage_events</code></td><td>Append-only usage log (enforcement deferred)</td></tr>
+          <tr><td><code class="inline">seo_workspaces</code></td><td>Tenant boundary</td></tr>
+          <tr><td><code class="inline">seo_workspace_members</code></td><td>Membership + <code class="inline">seo_role</code></td></tr>
+          <tr><td><code class="inline">seo_websites</code></td><td><strong>Core entity</strong> — website URL</td></tr>
+          <tr><td><code class="inline">seo_business_onboarding</code></td><td>Business context 1:1 with website</td></tr>
+          <tr><td><code class="inline">seo_connection_status</code></td><td>GSC/GA4/CMS/etc. placeholders</td></tr>
+        </tbody>
+      </table>
+      <p>Helpers: <code class="inline">has_seo_module_access</code>, <code class="inline">seo_is_global_admin</code>.</p>
+
+      <h2 id="stage2">Stage 2 — Audit / recommendations / approval</h2>
+      <table>
+        <thead><tr><th>Table</th><th>Purpose</th></tr></thead>
+        <tbody>
+          <tr><td><code class="inline">seo_audit_runs</code></td><td>One row per audit run (history preserved)</td></tr>
+          <tr><td><code class="inline">seo_audit_issues</code></td><td>Issues for a run (also crawler-published)</td></tr>
+          <tr><td><code class="inline">seo_recommendations</code></td><td>Suggested fixes</td></tr>
+          <tr><td><code class="inline">seo_approval_items</code></td><td>Approval queue</td></tr>
+          <tr><td><code class="inline">seo_approval_comments</code></td><td>Threaded comments</td></tr>
+          <tr><td><code class="inline">seo_approval_activity</code></td><td>Append-only activity</td></tr>
+        </tbody>
+      </table>
+      <p>RPCs: <code class="inline">seo_run_audit</code>, <code class="inline">seo_supersede_recommendation</code>, <code class="inline">seo_approval_transition</code>.</p>
+
+      <h2 id="stage3">Stage 3 — Content Studio</h2>
+      <table>
+        <thead><tr><th>Table</th><th>Purpose</th></tr></thead>
+        <tbody>
+          <tr><td><code class="inline">seo_content_opportunities</code></td><td>Top-level content workflow</td></tr>
+          <tr><td><code class="inline">seo_content_keyword_plans</code></td><td>Keyword plan 1:1</td></tr>
+          <tr><td><code class="inline">seo_content_competitor_summaries</code></td><td>Competitor briefs</td></tr>
+          <tr><td><code class="inline">seo_content_wireframes</code></td><td>Approved structure</td></tr>
+          <tr><td><code class="inline">seo_content_format_inputs</code></td><td>Filename/metadata only</td></tr>
+          <tr><td><code class="inline">seo_content_drafts</code> / <code class="inline">…_sections</code></td><td>Draft body</td></tr>
+          <tr><td><code class="inline">seo_content_section_revisions</code></td><td>Revision history</td></tr>
+          <tr><td><code class="inline">seo_content_comments</code> / <code class="inline">…_activity</code></td><td>Collaboration</td></tr>
+          <tr><td><code class="inline">seo_content_assets</code></td><td>Asset metadata → Storage</td></tr>
+        </tbody>
+      </table>
+      <p>RPC: <code class="inline">seo_content_transition</code>.</p>
+
+      <h2 id="stage4">Stage 4 — Page Performance (LOCKED)</h2>
+      <table>
+        <thead><tr><th>Object</th><th>Purpose</th></tr></thead>
+        <tbody>
+          <tr><td><code class="inline">seo_page_inventory</code></td><td>Known pages (also crawler-published)</td></tr>
+          <tr><td><code class="inline">seo_page_keywords</code></td><td>Mapped keywords</td></tr>
+          <tr><td><code class="inline">seo_page_performance_snapshots</code></td><td>Click/impression/CTR snapshots</td></tr>
+          <tr><td><code class="inline">seo_page_performance_latest</code></td><td>View of latest snapshot per page</td></tr>
+        </tbody>
+      </table>
+
+      <h2 id="stage5">Stage 5 — Decline Diagnosis</h2>
+      <table>
+        <thead><tr><th>Object</th><th>Purpose</th></tr></thead>
+        <tbody>
+          <tr><td><code class="inline">seo_decline_diagnoses</code></td><td>Diagnosis records</td></tr>
+          <tr><td><code class="inline">seo_decline_diagnosis_evidence</code></td><td>Evidence rows</td></tr>
+          <tr><td><code class="inline">seo_decline_diagnoses_current</code></td><td>Current-view</td></tr>
+        </tbody>
+      </table>
+      <p>RPC: <code class="inline">seo_create_decline_diagnosis_from_snapshot</code>.</p>
+
+      <h2 id="stage6">Stage 6 — Off-page + AI Visibility (implemented scope LOCKED)</h2>
+      <table>
+        <thead><tr><th>Table</th><th>Purpose</th></tr></thead>
+        <tbody>
+          <tr><td><code class="inline">seo_authority_opportunities</code></td><td>Backlink/mention/PR opportunities</td></tr>
+          <tr><td><code class="inline">seo_authority_campaigns</code></td><td>Campaign header + approval_status</td></tr>
+          <tr><td><code class="inline">seo_authority_campaign_opportunities</code></td><td>Junction</td></tr>
+          <tr><td><code class="inline">seo_authority_campaign_tasks</code></td><td>Tasks</td></tr>
+          <tr><td><code class="inline">seo_authority_activity</code></td><td>Append-only activity</td></tr>
+          <tr><td><code class="inline">seo_ai_prompt_tracking</code></td><td>GEO prompt visibility series</td></tr>
+          <tr><td><code class="inline">seo_ai_content_gaps</code></td><td>Content gaps</td></tr>
+          <tr><td><code class="inline">seo_ai_mentions</code></td><td>Mention rows</td></tr>
+        </tbody>
+      </table>
+      <p>RPCs: <code class="inline">seo_authority_opportunity_transition</code>, <code class="inline">seo_authority_campaign_create</code>, <code class="inline">seo_authority_campaign_transition</code>.</p>
+
+      <h2 id="crawler-tables">Crawler (Phases 16C–16H)</h2>
+      <table>
+        <thead><tr><th>Table</th><th>Visibility</th><th>Purpose</th></tr></thead>
+        <tbody>
+          <tr><td><code class="inline">seo_crawl_jobs</code></td><td>Customer read</td><td>Job control plane + status</td></tr>
+          <tr><td><code class="inline">seo_crawl_events</code></td><td>Customer read</td><td>Append-only lifecycle events</td></tr>
+          <tr><td><code class="inline">seo_crawl_attempts</code></td><td>Global-admin read</td><td>Internal attempt diagnostics</td></tr>
+          <tr><td><code class="inline">seo_crawl_discovered_pages</code></td><td>Customer read</td><td>Discovery results</td></tr>
+          <tr><td><code class="inline">seo_crawl_sitemaps</code></td><td>Customer read</td><td>Parsed sitemaps</td></tr>
+          <tr><td><code class="inline">seo_crawl_page_snapshots</code></td><td>Customer read</td><td>Extracted facts (no full HTML)</td></tr>
+          <tr><td><code class="inline">seo_crawl_issues</code></td><td>Customer read</td><td>Deterministic technical issues</td></tr>
+          <tr><td><code class="inline">seo_crawl_publications</code></td><td>Customer read</td><td>Publish evidence</td></tr>
+          <tr><td><code class="inline">seo_crawl_issue_audit_map</code></td><td>Reference</td><td>29-code → audit mapping</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Customer crawl RPCs</h3>
+      <ul>
+        <li><code class="inline">seo_crawl_request</code> / <code class="inline">seo_crawl_request_audit</code></li>
+        <li><code class="inline">seo_crawl_cancel</code></li>
+      </ul>
+      <h3>Service-role worker RPCs (selected)</h3>
+      <ul>
+        <li><code class="inline">seo_crawl_claim_job</code>, heartbeat / complete / partial / fail / schedule_retry / acknowledge_cancellation</li>
+        <li><code class="inline">seo_crawl_recover_stale_jobs</code></li>
+        <li><code class="inline">seo_crawl_worker_record_discovery</code>, <code class="inline">…_snapshots</code>, <code class="inline">…_issues</code></li>
+        <li><code class="inline">seo_crawl_worker_publish_results</code></li>
+      </ul>
+
+      <h2 id="ownership-tables">P1a — Ownership verification</h2>
+      <table>
+        <thead><tr><th>Table</th><th>Audience</th></tr></thead>
+        <tbody>
+          <tr><td><code class="inline">seo_ownership_verifications</code></td><td>Customer read; writes via RPCs only</td></tr>
+          <tr><td><code class="inline">seo_ownership_verification_events</code></td><td>Append-only audit (customer read)</td></tr>
+          <tr><td><code class="inline">seo_ownership_verification_claims</code></td><td>Internal lease ledger (admin/worker)</td></tr>
+        </tbody>
+      </table>
+      <p>
+        Customer RPCs: initiate / recheck / reverify / revoke.<br/>
+        Service-role: claim / record_result; authenticated global-admin: admin_override.
+      </p>
+
+      <div class="callout info">
+        Name constants used by the frontend live in
+        <code class="inline">src/services/supabase/supabaseTypes.ts</code>
+        (<code class="inline">SEO_TABLES</code>, <code class="inline">SEO_RPCS</code>).
+        Internal ownership claim/result RPCs are intentionally omitted from that frontend registry.
+      </div>
+
+      <p class="footer-note">
+        Migration SQL: <code class="inline">supabase/migrations/</code>.
+        Architecture plan:
+        <a href="../markdown/SUPABASE_BACKEND_ARCHITECTURE_PLAN.md">SUPABASE_BACKEND_ARCHITECTURE_PLAN.md</a>.
+      </p>
+    </main>
+  </div>
+  <script>window.DOC_PAGE = "database.html"; window.DOC_PREFIX = "../";</script>
+  <script src="../assets/nav.js"></script>
+</body>
+</html>

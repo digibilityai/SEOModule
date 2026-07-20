@@ -7,6 +7,18 @@ hybrid decision below was approved and the login-only customer authentication +
 authoritative; no DB/RPC/RLS change; production untouched. The auth
 implementation is **not module-locked** (deferred). **Original decision date:**
 2026-07-13.
+
+> **Production integration addendum (2026-07-20):** the previously deferred
+> parent-identity contract is now implemented in source as a cross-project
+> bridge: Digibility Core remains the only upstream login and entitlement
+> authority; SEO uses its own Supabase project and receives a normal downstream
+> Supabase session through a 60-second one-time-code + admin-generated magic-link
+> exchange. The Digibility UUID is preserved. Existing standalone password auth
+> remains only as a TEST/local fallback when bridge configuration is absent;
+> mock mode remains unchanged. Source + unit/build verification are complete,
+> but migrations/functions are **not applied/deployed** and end-to-end
+> TEST/production validation is pending. See
+> `CROSS_PROJECT_SSO_IMPLEMENTATION.md`.
 **Scope:** the standalone Digibility SEO module
 (`/Users/amitguptaamit/gitrepo/user_guide/Digibility-SEO-Module`).
 **Related:** `MVP_RELEASE_READINESS_AND_NEXT_SCOPE.md` (Option B),

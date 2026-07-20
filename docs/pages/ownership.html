@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Ownership verification — SEO docs</title>
+  <link rel="stylesheet" href="../assets/styles.css" />
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar" id="sidebar"></aside>
+    <main class="content">
+      <div class="topbar">
+        <div class="crumb"><a href="../index.html">docs</a> / ownership</div>
+        <span class="badge warn">P1a · lock pending worker binary</span>
+      </div>
+
+      <h1>Domain ownership verification (DNS-TXT)</h1>
+      <p class="lead">
+        P1a proves a workspace owns a website host via a DNS TXT challenge —
+        before future P1b gates crawl enqueue on verified ownership.
+      </p>
+
+      <h2>Steps built</h2>
+      <table>
+        <thead><tr><th>Step</th><th>Layer</th><th>What landed</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td>DB</td><td>verifications + events tables, RLS default-deny writes</td></tr>
+          <tr><td>2A</td><td>Customer RPCs</td><td>initiate / recheck / reverify / revoke (owner/admin)</td></tr>
+          <tr><td>2B</td><td>Worker/admin RPCs</td><td>claim / record_result / admin_override + claims ledger</td></tr>
+          <tr><td>3</td><td>Worker</td><td><code class="inline">verify-once</code> DNS module (isolated from crawl processor)</td></tr>
+          <tr><td>4</td><td>Frontend service</td><td>types, hooks, mock adapter</td></tr>
+          <tr><td>5</td><td>UI</td><td><code class="inline">OwnershipVerificationPanel</code> on Websites cards</td></tr>
+          <tr><td>6</td><td>Sign-off</td><td>Implemented; operator acceptance nearly complete</td></tr>
+        </tbody>
+      </table>
+
+      <h2>Customer request sequence</h2>
+      <div class="flow">
+        <div class="flow-step">
+          <div class="flow-num">1</div>
+          <div class="flow-body">
+            <strong>Verify ownership</strong>
+            <p>Owner/admin → <code class="inline">seo_ownership_verification_initiate</code> → status <code class="inline">pending</code> + challenge token.</p>
+          </div>
+        </div>
+        <div class="arrow-down">↓</div>
+        <div class="flow-step">
+          <div class="flow-num">2</div>
+          <div class="flow-body">
+            <strong>Customer publishes DNS TXT</strong>
+            <p>Host: <code class="inline">_digibility-site-verification.&lt;host&gt;</code> · Value: challenge token (exact, case-sensitive).</p>
+          </div>
+        </div>
+        <div class="arrow-down">↓</div>
+        <div class="flow-step">
+          <div class="flow-num">3</div>
+          <div class="flow-body">
+            <strong>Check again</strong>
+            <p><code class="inline">recheck</code> reuses the token and re-arms pending (no DNS in the RPC). Worker must run to flip verified/failed.</p>
+          </div>
+        </div>
+        <div class="arrow-down">↓</div>
+        <div class="flow-step">
+          <div class="flow-num">4</div>
+          <div class="flow-body">
+            <strong>Worker verify-once</strong>
+            <p>claim → DNS TXT resolve → exact match → <code class="inline">record_result</code> → <code class="inline">verified</code> or <code class="inline">failed</code> with customer-safe reason.</p>
+          </div>
+        </div>
+      </div>
+
+      <h2>UI guard: double-submit lock</h2>
+      <p>
+        Rapid clicks on Check again previously could fire multiple recheck RPCs.
+        Final fix: per-action state machine
+        <code class="inline">idle → in_flight → cooldown (3s) → idle</code>
+        with synchronous phase ref + visible disabled buttons.
+      </p>
+
+      <h2>Role matrix</h2>
+      <table>
+        <thead><tr><th>Role</th><th>See status</th><th>Mutate</th></tr></thead>
+        <tbody>
+          <tr><td>owner / admin</td><td>Yes</td><td>initiate / recheck / reverify / revoke</td></tr>
+          <tr><td>team_member / client</td><td>Yes</td><td>No (read-only message)</td></tr>
+          <tr><td>non-member</td><td>No</td><td>No</td></tr>
+          <tr><td>global admin</td><td>Admin paths</td><td><code class="inline">admin_override</code> (not exposed in customer UI)</td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout warn">
+        Remaining lock blocker: run the real <code class="inline">verify-once</code> worker binary
+        against TEST with <code class="inline">SUPABASE_SERVICE_ROLE_KEY</code>.
+        P1b (block crawl unless verified) is not started.
+      </div>
+
+      <p class="footer-note">
+        <a href="../markdown/P1A_DOMAIN_OWNERSHIP_VERIFICATION_SIGNOFF.md">P1A_DOMAIN_OWNERSHIP_VERIFICATION_SIGNOFF.md</a>
+        · Step docs P1A_STEP1…STEP5 in <a href="markdown-index.html">markdown index</a>.
+      </p>
+    </main>
+  </div>
+  <script>window.DOC_PAGE = "ownership.html"; window.DOC_PREFIX = "../";</script>
+  <script src="../assets/nav.js"></script>
+</body>
+</html>
