@@ -1,14 +1,15 @@
 # P1a — Domain Ownership Verification — SIGN-OFF
 
-**Verdict: `P1A IMPLEMENTED — OPERATOR ACCEPTANCE PENDING` (updated 2026-07-18, `Digi_SEO_Test` ref `snyzotgwwfomgafrsvfm`).**
+**Verdict: `P1A COMPLETE — MODULE-LOCKED` (updated 2026-07-19, `Digi_SEO_Test` ref `snyzotgwwfomgafrsvfm`).**
 All automated P1a + locked-scope regressions PASS; the full capability is
 implemented and DB/worker/frontend-verified. **The authenticated browser role
-matrix is now COMPLETE — PASS** (owner/admin/team_member/client + sign-out/session
-isolation; see §3 and §10 2026-07-18 entry). **One acceptance item remains an
-operator follow-up** (exact reason in §Worker-integration): the real DNS
-**worker binary** end-to-end run. **No defect or blocker was found.** Production
-untouched. **P1b is not implemented.** Because operator acceptance is pending,
-**P1a is NOT yet module-locked** (no lock entry added).
+matrix is COMPLETE — PASS** (owner/admin/team_member/client + sign-out/session
+isolation; see §3 and §10 2026-07-18 entry). **The real DNS `verify-once` worker-binary
+run is now COMPLETE — PASS** (see §4 and §10 2026-07-19 entry) — this was the last
+outstanding acceptance item. **No defect or blocker was found.** Production
+untouched. **A formal P1a lock entry now exists in `MODULE_LOCKS.md`.** **P1b —
+verified-only crawl enqueue enforcement — is the next implementation stage (not
+started).**
 
 ---
 
@@ -86,13 +87,29 @@ across five layers, all applied to **TEST only**:
   multi-record/multi-string flatten, NXDOMAIN/timeout/temporary/internal → customer-safe
   failed, no-work exit, stale-claim safe stop, no-crawl-processor-import, raw
   challenge/TXT never logged, graceful shutdown).
-- **PENDING (not executed):** the **real worker binary** (`--mode=verify-once`)
-  against `Digi_SEO_Test` — **no `SUPABASE_SERVICE_ROLE_KEY` is available in this
-  environment**, so the service-role client cannot be constructed here. Per the
-  task, earlier evidence is **not** substituted to call this operator proof
-  complete; it remains an operator follow-up. (The worker↔RPC wiring is proven by
-  the Node integration test with a fake Supabase client; the RPC↔DB behaviour by
-  the integration SQL above.)
+- **PROVEN (executed) — real worker binary, COMPLETE — PASS (2026-07-19, `Digi_SEO_Test`).**
+  Operator ran `npm start -- --mode=verify-once` from `crawler-worker/` after exporting
+  `crawler-worker/.env` into the shell; the worker started with `environment=test`,
+  `mode=verify-once`, and logged `serviceRoleKey` **only as `[REDACTED]`**. It claimed the
+  only eligible verification (`id=41d2a3e8-3c7e-4b55-a282-6682a8349b69`,
+  `website_id=fb98d59c-0f7d-4724-9f60-9db385bf2592`, host `digibility.ai`), performed a
+  **real Node DNS TXT lookup** (not the fixture resolver) against
+  `_digibility-site-verification.digibility.ai` → no record found, and persisted the
+  result via the real `seo_ownership_verification_record_result` RPC: `status=failed`,
+  reason code `dns_not_found`, `last_checked_at=updated_at=2026-07-19
+  05:18:27.369182+00`; exactly one new `seo_ownership_verification_events` row
+  (`event_type=failed`, `from_status=pending`, `to_status=failed`, `actor=worker`,
+  `note="Ownership verification failed"`, `created_at=2026-07-19 05:18:27.369182+00`).
+  The worker emitted a `verify_once` completion log line and **exited code 0**. **No
+  challenge value, lease token, or service-role key was ever exposed.** The legitimate
+  DNS business outcome was a customer-safe `failed`/`dns_not_found` — **not a defect**;
+  the acceptance proves the trusted end-to-end worker-binary path (real service-role
+  client → real claim RPC → real DNS resolution → real result RPC, none simulated),
+  which is independent of whether the DNS business result is `verified` or a legitimate
+  `failed`. No source/migration/SQL/worker/config/crawl-contract/production file
+  changed during this run. (The worker↔RPC wiring was separately proven by the Node
+  integration test with a fake Supabase client; the RPC↔DB behaviour by the integration
+  SQL; this run proves the real binary end-to-end.)
 
 ## 5. Database & security evidence
 - **DB:** 33 migrations `…120001`–`…120033` on TEST; ownership tables/RPCs/claim
@@ -129,10 +146,10 @@ across five layers, all applied to **TEST only**:
   intact (unique index `uq_seo_page_perf_snap_combo` present; Page-Performance files
   unchanged; no migration since Stage 4). A psql-style runner (operator env) is
   needed to execute these smokes cleanly.
-- The **real worker binary** run remains an operator follow-up (§4) — no
-  service-role key here. (The authenticated **browser** role matrix, previously
-  listed here as a limitation, is now **COMPLETE — PASS**; see §3 and §10
-  2026-07-18 entry.)
+- **None remaining.** The **real worker binary** run (previously listed here as
+  a limitation) is now **COMPLETE — PASS** (2026-07-19; see §4 and §10). The
+  authenticated **browser** role matrix, also previously listed here, is
+  **COMPLETE — PASS** (2026-07-18; see §3 and §10).
 - `revokedAt` is a derived approximate value (Step 1 has no `revoked_at` column);
   deliberately not displayed in the UI.
 - No frontend unit-test framework (mock-browser + operator validation + pure
@@ -146,11 +163,12 @@ rotated** it, **revoke → revoked → "Verify ownership"**; **no console errors
 Supabase request** (all network Vite/localhost). Existing website mocks unchanged.
 
 ## 9. Production / lock status
-Production **untouched**. **P1a is NOT module-locked** — a formal implemented-scope
-lock is withheld until the **sole remaining pending operator-acceptance item**
-(§4 real `verify-once` worker binary run) passes. The §3 authenticated browser role
-matrix is now **COMPLETE — PASS** (2026-07-18). This is not a defect; it is an
-acceptance-evidence gap in this environment.
+Production **untouched**. **P1a is now MODULE-LOCKED (2026-07-19).** All operator-acceptance
+items have passed: the §3 authenticated browser role matrix (2026-07-18) and the §4 real
+`verify-once` worker binary run (2026-07-19). A formal P1a lock entry (locked scope,
+protected contracts, locked files, and the unlock/additive-extension procedure) has been
+added to `MODULE_LOCKS.md`. Future changes to any P1a file require that entry's evidence
+bar and explicit human approval.
 
 ## 10. Acceptance-attempt log
 - **2026-07-16 — operator-acceptance run attempted; verdict unchanged.** Fresh
@@ -256,9 +274,11 @@ acceptance-evidence gap in this environment.
   - **No defect found. No source/migration/SQL/worker/frontend/config file was changed during this browser acceptance.** DNS challenge values from any screenshot evidence are intentionally not reproduced in this record. Non-member click-through was not exercised (not part of the accepted evidence); the SQL-proven backend matrix (§3) already covers non-member/anon denial at the RPC layer.
   - **Effect:** the §3 "Authenticated UI (browser) operator matrix — PENDING" item is **RESOLVED — PASS**. The role matrix is no longer an open P1a acceptance blocker. **Verdict unchanged: `P1A IMPLEMENTED — OPERATOR ACCEPTANCE PENDING`; P1a remains NOT module-locked.** The **sole remaining operator item** is §4: the real `verify-once` worker binary run against `Digi_SEO_Test` (needs `SUPABASE_SERVICE_ROLE_KEY`).
 
+- **2026-07-19 — Real `verify-once` worker-binary run COMPLETE — PASS. P1a ACCEPTANCE COMPLETE; P1a is now MODULE-LOCKED.** Operator ran `npm start -- --mode=verify-once` from `crawler-worker/` against `Digi_SEO_Test` (ref `snyzotgwwfomgafrsvfm`), with `crawler-worker/.env` exported into the shell. The worker started with `environment=test`, `mode=verify-once`; the startup log's `serviceRoleKey` field appeared **only as `[REDACTED]`** (never printed in full). It claimed the single eligible verification (`id=41d2a3e8-3c7e-4b55-a282-6682a8349b69`, `website_id=fb98d59c-0f7d-4724-9f60-9db385bf2592`, host `digibility.ai`), performed a **real Node DNS TXT lookup** (not the fixture resolver — `CRAWLER_VERIFICATION_FIXTURE_DNS` was not set) against `_digibility-site-verification.digibility.ai`, found no matching record, and persisted the result via the real `seo_ownership_verification_record_result` RPC: `status=failed`, failure reason code `dns_not_found`, `last_checked_at=updated_at=2026-07-19 05:18:27.369182+00`. Exactly one new `seo_ownership_verification_events` row was written: `event_type=failed`, `from_status=pending`, `to_status=failed`, `actor=worker`, `note="Ownership verification failed"`, `created_at=2026-07-19 05:18:27.369182+00`. The worker logged a `verify_once` completion line (outcome=`failed`, matching `verificationId`) and **exited code 0**. **At no point was the challenge value, lease token, or service-role key exposed** (console, logs, or otherwise). **The legitimate DNS business outcome — `failed`/`dns_not_found`, because no TXT record is currently present at that host — is not a defect.** Per the accepted acceptance criterion, the worker-binary proof is the **trusted end-to-end path** (a real service-role Supabase client constructing successfully, a real `seo_ownership_verification_claim` RPC call, real Node DNS resolution, and a real `seo_ownership_verification_record_result` RPC call — none simulated, unlike all prior automated evidence which used either a fake Supabase client or a `postgres`-superuser SQL simulation), independent of whether the DNS business result is `verified` or a legitimate customer-safe `failed`. **No source, migration, SQL, worker, config, crawl-contract, or production file was changed during this run.**
+  - **Effect:** the §4 "real worker binary — PENDING" item is **RESOLVED — PASS**. This was the **last outstanding P1a operator-acceptance item.** All three acceptance items are now PASS: backend authorization matrix (SQL, §3), authenticated browser role matrix (§3, 2026-07-18), and the real worker-binary run (§4, 2026-07-19). **P1a Domain Ownership Verification is COMPLETE.** A formal implemented-scope lock has been added to `MODULE_LOCKS.md` — **P1a is now MODULE-LOCKED.** **P1b — verified-only crawl enqueue enforcement — is the next implementation stage** (separately approved, additive to the locked crawler 16C–16H contracts; not started).
+
 ## Verdict
-**`P1A IMPLEMENTED — OPERATOR ACCEPTANCE PENDING`** (Step 2.8 double-submit acceptance
-now **PASS**, §10 2026-07-17; A3 DB proof + pending-record cleanup **COMPLETE**, §10 2026-07-17; P1a Step 2B + Step 3 SQL regressions **RE-RUN COMPLETE = PASS**, §10 2026-07-18; authenticated **browser role matrix COMPLETE — PASS**, §10 2026-07-18; overall lock still withheld until the **sole remaining operator item** — the real
-`verify-once` **worker binary** run (§4) — passes with populated evidence). Next milestone
+**`P1A COMPLETE — MODULE-LOCKED`** (Step 2.8 double-submit acceptance
+**PASS**, §10 2026-07-17; A3 DB proof + pending-record cleanup **COMPLETE**, §10 2026-07-17; P1a Step 2B + Step 3 SQL regressions **RE-RUN COMPLETE = PASS**, §10 2026-07-18; authenticated **browser role matrix COMPLETE — PASS**, §10 2026-07-18; real **`verify-once` worker binary run COMPLETE — PASS**, §10 2026-07-19. All operator-acceptance items are satisfied; a formal P1a lock entry now exists in `MODULE_LOCKS.md`). Next milestone
 (separately approved, additive to the locked 16C–16H contracts): **P1b — verified-only
-crawl enqueue enforcement.**
+crawl enqueue enforcement (not started).**

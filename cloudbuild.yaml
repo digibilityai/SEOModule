@@ -20,8 +20,8 @@ substitutions:
   _SERVICE: digi-seo-frontend-test
   # Digibility test UI host (matches existing Digibility .ai hosts)
   _DIGIBILITY_APP_URL: https://testapp.digibility.ai
-  # Core DevApp / test Supabase Edge Function (update if your Core project ref differs)
-  _DIGIBILITY_BRIDGE_URL: https://dwkfhnbcvaljvrcsxzkl.supabase.co/functions/v1/seo-bridge
+  # Digibility TEST Core (testapp) Edge Function — not DevApp
+  _DIGIBILITY_BRIDGE_URL: https://szxdfmcexafiwlgestpl.supabase.co/functions/v1/seo-bridge
   _RUNTIME_SA: digi-frontend-runner@digibility-frontend.iam.gserviceaccount.com
 
 options:

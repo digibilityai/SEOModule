@@ -9,14 +9,33 @@ import { fetchAiContentGaps } from "@/services/aiVisibilityService";
 import { fetchCompetitorGaps } from "@/services/competitorService";
 import { fetchRoadmapItems } from "@/services/roadmapService";
 import { fetchSupportRequests } from "@/services/supportService";
-import { getLatestReport, listReports, upsertReport } from "@/mocks/reportMockData";
+import { getLatestReport, getReportForPeriod, listReports, upsertReport } from "@/mocks/reportMockData";
+import { runWithServiceAdapter } from "@/services/serviceAdapter";
+import {
+  fetchSupabaseLatestReport,
+  fetchSupabaseReportForExport,
+  fetchSupabaseReports,
+  generateSupabaseReport,
+} from "@/services/supabase/seoReportsSupabaseService";
 
 export async function fetchProgressReports(websiteId: string): Promise<ProgressReport[]> {
-  return toAsync(listReports(websiteId));
+  return runWithServiceAdapter({
+    label: "reportService.fetchProgressReports",
+    mock: () => toAsync(listReports(websiteId)),
+    supabase: () => fetchSupabaseReports(websiteId),
+    // Reports Stage 1 is the real-data read path — surface Supabase read
+    // errors instead of silently masking them with mock data.
+    fallbackToMockOnError: false,
+  });
 }
 
 export async function fetchLatestProgressReport(websiteId: string): Promise<ProgressReport | null> {
-  return toAsync(getLatestReport(websiteId));
+  return runWithServiceAdapter({
+    label: "reportService.fetchLatestProgressReport",
+    mock: () => toAsync(getLatestReport(websiteId)),
+    supabase: () => fetchSupabaseLatestReport(websiteId),
+    fallbackToMockOnError: false,
+  });
 }
 
 export async function fetchReportForPeriod(
@@ -25,6 +44,21 @@ export async function fetchReportForPeriod(
 ): Promise<ProgressReport | null> {
   const reports = await fetchProgressReports(websiteId);
   return reports.find((r) => r.period_key === periodKey) ?? null;
+}
+
+// Reports Stage 3 — export authorization. In Supabase mode this goes through the
+// read-only role-gated `seo_report_export_data` RPC (owner/admin/team_member
+// only); in mock mode it reads the stored mock report. Never regenerates.
+export async function fetchReportForExport(
+  websiteId: string,
+  periodKey: ReportPeriodKey,
+): Promise<ProgressReport | null> {
+  return runWithServiceAdapter({
+    label: "reportService.fetchReportForExport",
+    mock: () => toAsync(getReportForPeriod(websiteId, periodKey)),
+    supabase: () => fetchSupabaseReportForExport(websiteId, periodKey),
+    fallbackToMockOnError: false,
+  });
 }
 
 function periodRange(periodKey: ReportPeriodKey): { start: Date; end: Date; label: string } {
@@ -49,10 +83,28 @@ function toDateOnly(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
-// Pulls a snapshot from every other module and turns it into a single,
-// client-friendly report using simple deterministic rules (no analytics
-// engine) — real BI/reporting integrations will replace this later.
+// Generates (or refreshes) a report for a website + period. In Supabase mode
+// this calls the guarded `seo_report_generate` RPC (server-side authorization +
+// aggregation + canonical upsert; Reports Stage 2). In mock mode it runs the
+// local deterministic aggregation below. No silent mock fallback in Supabase
+// mode — a real generation error surfaces.
 export async function generateProgressReport(
+  website: SeoWebsite,
+  periodKey: ReportPeriodKey,
+): Promise<ProgressReport> {
+  return runWithServiceAdapter({
+    label: "reportService.generateProgressReport",
+    mock: () => generateMockProgressReport(website, periodKey),
+    supabase: () => generateSupabaseReport(website.id, periodKey),
+    fallbackToMockOnError: false,
+  });
+}
+
+// Mock-mode generation: pulls a snapshot from every other module and turns it
+// into a single, client-friendly report using simple deterministic rules (no
+// analytics engine). Unchanged from before Stage 2 — mock mode behaves exactly
+// as it always did.
+async function generateMockProgressReport(
   website: SeoWebsite,
   periodKey: ReportPeriodKey,
 ): Promise<ProgressReport> {

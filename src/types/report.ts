@@ -47,6 +47,11 @@ export interface ProgressReport extends SeoBaseRecord {
   open_support_requests_count: number;
 
   next_actions: string[];
+
+  // Optional per-area source provenance ("live" | "unavailable"), present on
+  // Supabase-generated reports (Stage 2). Absent on mock reports. Used by the
+  // PDF export to render unavailable areas as "Not connected".
+  data_provenance?: Record<string, string>;
 }
 
 export type ReportSectionKey =

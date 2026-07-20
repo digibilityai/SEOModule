@@ -20,6 +20,7 @@ import { fetchRoadmapSummary } from "@/services/roadmapService";
 import { fetchSupportSummary } from "@/services/supportService";
 import { fetchLatestProgressReport } from "@/services/reportService";
 import { useResolvedActiveWebsite } from "@/hooks/useResolvedActiveWebsite";
+import { HELP_ROUTES } from "@/help/routes";
 import { DashboardHeader } from "./dashboard/DashboardHeader";
 import { RecommendedNextStepCard } from "./dashboard/RecommendedNextStepCard";
 import { VisibilityScoreCards } from "./dashboard/VisibilityScoreCards";
@@ -31,6 +32,9 @@ import { PagePerformanceSummaryCard } from "./dashboard/PagePerformanceSummaryCa
 import { AuthorityAiVisibilitySummaryCard } from "./dashboard/AuthorityAiVisibilitySummaryCard";
 import { CompetitorRoadmapSummaryCard } from "./dashboard/CompetitorRoadmapSummaryCard";
 import { SupportReportsSummaryCard } from "./dashboard/SupportReportsSummaryCard";
+
+const HELP_LINK_CLASSNAME =
+  "text-sm font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-sm";
 
 export function SeoDashboardPage() {
   const { websites, activeWebsite, isLoading: isLoadingWebsites } = useResolvedActiveWebsite();
@@ -120,10 +124,15 @@ export function SeoDashboardPage() {
           <CardTitle>Welcome to Digibility SEO Intelligence</CardTitle>
           <CardDescription>Add your website to start SEO setup.</CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-3">
           <Button asChild>
             <Link to="/seo/websites">Add your website</Link>
           </Button>
+          <div>
+            <Link to={HELP_ROUTES.GETTING_STARTED} className={HELP_LINK_CLASSNAME}>
+              New here? Read the getting-started guide
+            </Link>
+          </div>
         </CardContent>
       </Card>
     );

@@ -15,9 +15,13 @@ import {
 } from "@/services/performanceService";
 import { findAccessibleWebsiteWithDeclineDiagnosisData } from "@/services/supabase/seoDeclineDiagnosisSupabaseService";
 import { DECLINE_DIAGNOSIS_SAFETY_NOTICE } from "@/lib/safetyRules";
+import { HELP_ROUTES } from "@/help/routes";
 import { SafetyNotice } from "./shared/SafetyNotice";
 import { DiagnosisCard } from "./decline-diagnosis/DiagnosisCard";
 import { RefreshRecommendationCard } from "./decline-diagnosis/RefreshRecommendationCard";
+
+const HELP_LINK_CLASSNAME =
+  "text-sm font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-sm";
 
 export function DeclineDiagnosisPage() {
   const { activeWebsite, isLoading: isLoadingWebsite } = useResolvedActiveWebsite();
@@ -178,12 +182,15 @@ export function DeclineDiagnosisPage() {
       <Card>
         <CardHeader>
           <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
+            <div className="space-y-1.5">
               <CardTitle>Decline Diagnosis</CardTitle>
               <CardDescription>
                 Likely reasons behind declining or aging pages on {displayWebsite.name}, and what to do
                 next.
               </CardDescription>
+              <Link to={HELP_ROUTES.DECLINE_DIAGNOSIS} className={HELP_LINK_CLASSNAME}>
+                How to investigate a decline
+              </Link>
             </div>
             {pageIdFilter && (
               <Button asChild variant="outline" size="sm">

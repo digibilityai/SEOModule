@@ -26,6 +26,11 @@ import { SeoSettingsPage } from "@/pages/seo/SeoSettingsPage";
 import { SeoAdminPreviewPage } from "@/pages/seo/SeoAdminPreviewPage";
 import { SupabaseReadinessPage } from "@/pages/seo/dev/SupabaseReadinessPage";
 import { SupabaseAuthTestPage } from "@/pages/seo/dev/SupabaseAuthTestPage";
+import { HelpHomePage } from "@/pages/help/HelpHomePage";
+import { HelpSearchPage } from "@/pages/help/HelpSearchPage";
+import { HelpCategoryPage } from "@/pages/help/HelpCategoryPage";
+import { HelpArticlePage } from "@/pages/help/HelpArticlePage";
+import { HelpDevContentCheckPage } from "@/pages/help/HelpDevContentCheckPage";
 
 // Renders the app shell (Sidebar + Header) around every protected route.
 // The customer login route is intentionally rendered OUTSIDE this shell.
@@ -52,6 +57,19 @@ export function SeoRoutes() {
       <Route path="/seo/login" element={<SeoLoginPage />} />
       <Route path="/seo/auth/bridge" element={<SeoBridgePage />} />
       <Route path="/seo/auth/logout" element={<SeoLogoutPage />} />
+
+      {/* Public Help Center — AUTHENTICATION-FREE, outside the /seo/* protected
+          route boundary. These routes must never be wrapped in <ProtectedRoute>
+          and must never import useSeoAccess/useResolvedActiveWebsite/role hooks
+          (see src/pages/help/HelpShell.tsx). They are reachable signed-out, with
+          Supabase config absent, and from a direct/refreshed deep link. */}
+      <Route path="/help" element={<HelpHomePage />} />
+      <Route path="/help/search" element={<HelpSearchPage />} />
+      <Route path="/help/category/:categorySlug" element={<HelpCategoryPage />} />
+      <Route path="/help/article/:articleSlug" element={<HelpArticlePage />} />
+      {import.meta.env.DEV && (
+        <Route path="/help/dev/content-check" element={<HelpDevContentCheckPage />} />
+      )}
 
       {/* Shelled + protected */}
       <Route element={<ShellLayout />}>

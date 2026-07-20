@@ -98,6 +98,21 @@ VALUES (current_setting('seo16c.inactive')::uuid, current_setting('seo16c.worksp
         'https://phase16c-verify-inactive.example', 'PHASE16C Verify Inactive', 'PHASE16C Verify', 'other', 'pending', false)
 ON CONFLICT (id) DO NOTHING;
 
+-- P1b fixture: seed VERIFIED domain-ownership for the sites that must reach the
+-- enqueue path, so seo_crawl_request passes the P1b verified-only gate (migration
+-- 20260719120034). Both the main site (happy paths, dup, rls, cancel, claim, retry)
+-- and the INACTIVE site (so its negative test still fails on inactivity, not
+-- ownership — the ownership guard precedes the eligibility check) are verified.
+-- Idempotent; token-marked ('P1B-FIXTURE-TOKEN') for self-cleaning teardown;
+-- workspace/url derived from the website row (satisfies the integrity trigger).
+INSERT INTO public.seo_ownership_verifications
+  (workspace_id, website_id, website_url, verification_host, method, status, challenge_token, verified_at)
+SELECT w.workspace_id, w.id, w.website_url, 'p1b-fixture.example', 'dns_txt', 'verified', 'P1B-FIXTURE-TOKEN', now()
+  FROM public.seo_websites w
+ WHERE w.id IN (current_setting('seo16c.website')::uuid, current_setting('seo16c.inactive')::uuid)
+ON CONFLICT (website_id, method) DO UPDATE
+  SET status='verified', challenge_token='P1B-FIXTURE-TOKEN', verified_at=now(), updated_at=now();
+
 -- ---------- 2. ENQUEUE ------------------------------------------------------
 -- 2a. owner allowed → queued + correct snapshots + exactly one 'queued' event
 DO $t$
@@ -350,6 +365,9 @@ END $t$;
 -- ---------- 6. TEARDOWN -----------------------------------------------------
 DELETE FROM public.seo_crawl_jobs WHERE idempotency_key LIKE 'PHASE16C-VERIFY-%';
 DELETE FROM public.seo_websites WHERE id = current_setting('seo16c.inactive')::uuid;
+-- P1b fixture cleanup (main-site row; the inactive-site row was cascade-removed
+-- with its website above). Token-marked, so no non-fixture ownership row is touched.
+DELETE FROM public.seo_ownership_verifications WHERE challenge_token = 'P1B-FIXTURE-TOKEN';
 DROP FUNCTION IF EXISTS public._seo16c_login(uuid);
 
 DO $t$

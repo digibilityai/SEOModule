@@ -90,6 +90,11 @@ export const SEO_TABLES = {
   // frontend never reads them (claims are global-admin-only; lease tokens /
   // worker ids / internal diagnostics must never reach the client).
   ownershipVerifications: "seo_ownership_verifications",
+
+  // Reports Stage 1 — persisted progress reports (migration 20260720120035).
+  // Customer-readable (own workspace) via RLS; read-only from the frontend
+  // (no write RPC / generation ships in Stage 1).
+  reports: "seo_reports",
 } as const;
 
 export type SeoTableName = (typeof SEO_TABLES)[keyof typeof SEO_TABLES];
@@ -166,6 +171,19 @@ export const SEO_RPCS = {
   ownershipVerificationRecheck: "seo_ownership_verification_recheck",
   ownershipVerificationReverify: "seo_ownership_verification_reverify",
   ownershipVerificationRevoke: "seo_ownership_verification_revoke",
+
+  // Reports Stage 2 — guarded synchronous report generation (migration
+  // 20260720120036). SECURITY DEFINER, EXECUTE = authenticated only; owner/
+  // admin/team_member gated in-function; aggregates the six live areas
+  // server-side and upserts the canonical seo_reports row.
+  reportGenerate: "seo_report_generate",
+
+  // Reports Stage 3 — read-only export authorization (migration 20260720120038).
+  // STABLE SECURITY DEFINER, EXECUTE = authenticated only; owner/admin/team_member
+  // gated in-function (client/anon/nonmember/cross-tenant denied). Returns the
+  // already-persisted canonical seo_reports row for client-side PDF rendering;
+  // never regenerates.
+  reportExportData: "seo_report_export_data",
 } as const;
 
 export type SeoRpcName = (typeof SEO_RPCS)[keyof typeof SEO_RPCS];

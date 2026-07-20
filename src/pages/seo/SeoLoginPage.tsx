@@ -2,7 +2,7 @@
 // no signup, no password reset, no email verification). Chromeless page using
 // the existing design system. NOT the dev harness (which stays dev-only).
 import { useEffect, useState, type FormEvent } from "react";
-import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { hasDigibilityBridgeConfig, isMockMode } from "@/config/runtimeConfig";
 import { signInSeoCustomer } from "@/services/supabase/seoAccessService";
@@ -16,6 +16,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { HELP_ROUTES } from "@/help/routes";
+
+const HELP_LINK_CLASSNAME =
+  "text-sm font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-sm";
 
 export function SeoLoginPage() {
   const navigate = useNavigate();
@@ -46,6 +50,9 @@ export function SeoLoginPage() {
               You're running in mock mode — sign-in is not required. The SEO workflows are available
               directly for development and demonstration.
             </CardDescription>
+            <Link to={HELP_ROUTES.SIGN_IN_ACCESS} className={HELP_LINK_CLASSNAME}>
+              Trouble signing in?
+            </Link>
           </CardHeader>
           <CardContent>
             <Button size="sm" onClick={() => navigate(SEO_DEFAULT_ROUTE, { replace: true })}>
@@ -104,6 +111,9 @@ export function SeoLoginPage() {
         <CardHeader>
           <CardTitle className="text-lg">Sign in to Digibility SEO</CardTitle>
           <CardDescription>Sign in with your existing Digibility account.</CardDescription>
+          <Link to={HELP_ROUTES.SIGN_IN_ACCESS} className={HELP_LINK_CLASSNAME}>
+            Trouble signing in?
+          </Link>
         </CardHeader>
         <CardContent>
           <form className="space-y-4" onSubmit={handleSubmit} noValidate>

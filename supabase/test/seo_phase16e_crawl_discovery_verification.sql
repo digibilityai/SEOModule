@@ -43,6 +43,16 @@ BEGIN
   RAISE NOTICE 'STRUCT+GRANTS ok';
 END $t$;
 
+-- P1b fixture: seed VERIFIED domain-ownership for the seed website so
+-- seo_crawl_request passes the P1b verified-only gate (migration 20260719120034).
+-- Idempotent; token-marked for self-cleaning teardown; runs as postgres (setup).
+INSERT INTO public.seo_ownership_verifications
+  (workspace_id, website_id, website_url, verification_host, method, status, challenge_token, verified_at)
+SELECT w.workspace_id, w.id, w.website_url, 'p1b-fixture.example', 'dns_txt', 'verified', 'P1B-FIXTURE-TOKEN', now()
+  FROM public.seo_websites w WHERE w.id = current_setting('seo16e.website')::uuid
+ON CONFLICT (website_id, method) DO UPDATE
+  SET status='verified', challenge_token='P1B-FIXTURE-TOKEN', verified_at=now(), updated_at=now();
+
 -- 2. HAPPY PATH: claim → record pages+sitemaps → progress
 DO $t$
 DECLARE v_job uuid; v_tok uuid; v_ws uuid := current_setting('seo16e.workspace')::uuid; n int; st text;
@@ -144,4 +154,7 @@ BEGIN
   SELECT count(*) INTO n FROM public.seo_crawl_discovered_pages dp JOIN public.seo_crawl_jobs j ON j.id=dp.job_id WHERE j.idempotency_key LIKE 'PHASE16E-VERIFY-%';
   IF n <> 0 THEN RAISE EXCEPTION 'TEARDOWN: residual discovered pages %', n; END IF;
 END $t$;
+-- P1b fixture cleanup (token-marked; postgres context).
+RESET ROLE;
+DELETE FROM public.seo_ownership_verifications WHERE challenge_token = 'P1B-FIXTURE-TOKEN';
 SELECT 'ALL PASS — seo_phase16e crawl discovery verification complete' AS result;

@@ -1,11 +1,15 @@
 # P1a Step 3 — Isolated DNS-TXT ownership-verification worker module (record)
 
 **Status:** `IMPLEMENTED + TEST-VERIFIED (Digi_SEO_Test) — code-only additive extension of the LOCKED crawler-worker; production untouched` (2026-07-16).
-**Scope:** Step 3 only — a standalone DNS-TXT verification runner inside the
-existing crawler-worker runtime host. **P1a is NOT complete.** Frontend Steps 4–5,
-Step 6 sign-off, and P1b are excluded and unstarted. **No migration, no schema,
-no new RPC** (reuses the Step 2B RPCs). Approved as a narrowly-scoped additive
-extension inside `crawler-worker/**` (see the dated note in `MODULE_LOCKS.md`).
+**Scope:** Step 3 — a standalone DNS-TXT verification runner inside the
+existing crawler-worker runtime host. This record covers Step 3 only; Frontend
+Steps 4–5, Step 6 sign-off, and this worker's own real-binary acceptance were
+completed in later steps. **P1a is now COMPLETE and MODULE-LOCKED** (2026-07-19 —
+see the 2026-07-19 addendum below, `P1A_DOMAIN_OWNERSHIP_VERIFICATION_SIGNOFF.md`,
+and `MODULE_LOCKS.md`). P1b is the next implementation stage (not started).
+**No migration, no schema, no new RPC** (reuses the Step 2B RPCs). Approved as a
+narrowly-scoped additive extension inside `crawler-worker/**` (see the dated
+notes in `MODULE_LOCKS.md`).
 
 **Builds on:** `…120033` Step 2B RPCs (`seo_ownership_verification_claim` /
 `record_result`).
@@ -99,14 +103,16 @@ claim row and **not** customer-readable; **no** crawl-job/attempt/event, audit-
 issue, Page-Inventory, Page-Performance, recommendation, or Stage-6 row changed;
 disposable fixtures removed (0 residual). Idempotent + self-cleaning.
 
-**Known limitation (honest):** the Node worker **binary** was not run against
-Digi_SEO_Test in this environment because no `SUPABASE_SERVICE_ROLE_KEY` is
-present here. The worker↔RPC wiring (runner + gateway) is instead proven by an
+**Known limitation at original authoring (2026-07-16), now RESOLVED (2026-07-19):**
+at the time this record was written, the Node worker **binary** had not been run
+against `Digi_SEO_Test` because no `SUPABASE_SERVICE_ROLE_KEY` was present in that
+environment. The worker↔RPC wiring (runner + gateway) was instead proven by an
 executed Node integration test with a fake Supabase client (asserts only the two
 ownership RPCs are called, in order), and the RPC↔DB behaviour + all
-"no-other-module-change" assertions are proven by the executed integration SQL
-above against the real Step 2B RPCs. Live public-DNS resolution is intentionally
-not exercised in automated tests (injected/fixture resolver only).
+"no-other-module-change" assertions were proven by the executed integration SQL
+above against the real Step 2B RPCs. Live public-DNS resolution was intentionally
+not exercised in those automated tests (injected/fixture resolver only). **The real
+worker binary has since been run successfully — see the 2026-07-19 addendum below.**
 
 ## 6. Rollback (code-only; no DB rollback)
 Delete `crawler-worker/src/verification/**`, `crawler-worker/src/modes.ts`, and
@@ -127,3 +133,15 @@ sign-off) and P1b remain excluded.
 (as part of a post-Step-6 regression checkpoint) and returned **ALL PASS** again —
 see `P1A_DOMAIN_OWNERSHIP_VERIFICATION_SIGNOFF.md` §10 (2026-07-18 entry) for the
 full evidence. No file in this record changed.
+
+**Addendum (2026-07-19) — real worker binary COMPLETE, P1a MODULE-LOCKED:** the
+`verify-once` mode documented in this record was run as the **real Node binary**
+(`npm start -- --mode=verify-once`) against `Digi_SEO_Test`, closing the known
+limitation noted above. Real service-role client, real
+`seo_ownership_verification_claim`/`record_result` RPCs, and a real Node DNS TXT
+lookup (not fixture) all executed end-to-end; the legitimate business outcome was
+a customer-safe `failed`/`dns_not_found` (no TXT record present) — not a defect.
+No file in this record changed. Full evidence:
+`P1A_DOMAIN_OWNERSHIP_VERIFICATION_SIGNOFF.md` §4 + §10 (2026-07-19 entry). This
+was the last outstanding P1a acceptance item — **P1a is now formally locked** in
+`MODULE_LOCKS.md`, which now governs any future change to this file.

@@ -75,6 +75,16 @@ BEGIN
     );
 
   PERFORM set_config('seo1630.website', v_website::text, false);
+
+  -- P1b fixture: seed VERIFIED domain-ownership for this disposable site so
+  -- seo_crawl_request_audit passes the P1b verified-only gate (migration
+  -- 20260719120034). Token-marked; cascade-removed with the website at teardown.
+  INSERT INTO public.seo_ownership_verifications
+    (workspace_id, website_id, website_url, verification_host, method, status, challenge_token, verified_at)
+  VALUES (current_setting('seo1630.ws')::uuid, v_website, 'https://phase16h-audit-finalization.example',
+          'p1b-fixture.example', 'dns_txt', 'verified', 'P1B-FIXTURE-TOKEN', now())
+  ON CONFLICT (website_id, method) DO UPDATE
+    SET status='verified', challenge_token='P1B-FIXTURE-TOKEN', verified_at=now(), updated_at=now();
 END;
 $t$;
 
@@ -803,6 +813,9 @@ DECLARE
   v_website uuid := current_setting('seo1630.website')::uuid;
 BEGIN
   PERFORM public._seo1630_cleanup_runs();
+
+  -- P1b fixture cleanup (token-marked; also cascade-removed with the website below).
+  DELETE FROM public.seo_ownership_verifications WHERE challenge_token = 'P1B-FIXTURE-TOKEN';
 
   DELETE FROM public.seo_websites
   WHERE id = v_website;

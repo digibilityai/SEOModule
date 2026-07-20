@@ -6,7 +6,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { useResolvedActiveWebsite } from "@/hooks/useResolvedActiveWebsite";
 import { fetchOnPageRecommendations } from "@/services/recommendationService";
 import { recommendationRequiresApproval } from "@/lib/safetyRules";
+import { HELP_ROUTES } from "@/help/routes";
 import { SafetyNotice } from "./shared/SafetyNotice";
+
+const HELP_LINK_CLASSNAME =
+  "text-sm font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-sm";
 
 const AREA_LABEL: Record<string, string> = {
   title: "Title tag",
@@ -58,6 +62,9 @@ export function PageOptimizerPage() {
             On-page suggestions for {activeWebsite.name}. Run an audit on the Technical SEO Audit
             page to refresh these.
           </CardDescription>
+          <Link to={HELP_ROUTES.APPROVAL_WORKFLOW} className={HELP_LINK_CLASSNAME}>
+            Why some suggestions need approval
+          </Link>
         </CardHeader>
       </Card>
 

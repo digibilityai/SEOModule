@@ -1,9 +1,14 @@
 // Phase 16B — shared branded states for the route guard, using the existing
 // design system (Card / Button / Skeleton). No protected page content leaks
 // from any of these states.
+import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { HELP_ROUTES } from "@/help/routes";
+
+const HELP_LINK_CLASSNAME =
+  "text-sm font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-sm";
 
 /** Non-blocking session/access resolving state. Never flashes protected content. */
 export function RouteLoadingState() {
@@ -38,6 +43,11 @@ export function AccessRequiredState({ variant = "module", onRetry, onSignOut }: 
               ? "You're signed in, but this area requires global-admin access."
               : "You're signed in, but your account doesn't have access to the SEO module yet. Please contact your administrator to request access."}
           </CardDescription>
+          {!isAdmin && (
+            <Link to={HELP_ROUTES.SIGN_IN_ACCESS} className={HELP_LINK_CLASSNAME}>
+              More about access states
+            </Link>
+          )}
         </CardHeader>
         <CardContent className="flex flex-wrap gap-2">
           {onRetry && (

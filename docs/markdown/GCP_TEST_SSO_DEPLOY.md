@@ -22,9 +22,12 @@ Crawler worker is **out of scope** for this cut.
 
 ### A. Supabase (before Cloud Run)
 
-1. **SEO TEST project** (e.g. Digi_SEO_Test `snyzotgwwfomgafrsvfm`):
+0. **Create a dedicated SEO TEST project** (recommended for GCP-from-scratch):
+   follow `SEO_SUPABASE_FRESH_TEST_SETUP.md` (new project + all 39 migrations +
+   Auth Site URL / redirect URLs). Do **not** reuse Digibility Core.
+1. **SEO TEST project** (new project or existing Digi_SEO_Test):
    - Apply all existing SEO migrations in order.
-   - Apply `20260720121000_seo_cross_project_identity_bridge.sql` (SQL Editor or CLI).
+   - Ensure `20260720121000_seo_cross_project_identity_bridge.sql` is applied.
 2. **Digibility Core / DevApp** (`dwkfhnbcvaljvrcsxzkl` or your TEST Core):
    - Apply `20260720120000_module_entitlements_seo_bridge.sql`.
    - Apply `20260720122000_seo_grant_all_users.sql`.

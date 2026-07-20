@@ -1,3 +1,4 @@
+import { HELP_ROUTES } from "@/help/routes";
 import { PlaceholderPage } from "./PlaceholderPage";
 
 export function BlogBriefsPage() {
@@ -5,6 +6,8 @@ export function BlogBriefsPage() {
     <PlaceholderPage
       title="Blog Briefs"
       description="A dedicated standalone blog brief tool hasn't been built yet. Blog topics, wireframes and drafts are created today inside Content Studio."
+      helpRoute={HELP_ROUTES.FEATURE_AVAILABILITY}
+      helpLabel="What 'not built yet' means"
     />
   );
 }

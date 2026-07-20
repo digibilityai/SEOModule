@@ -138,6 +138,15 @@ export function ExpertSupportPage() {
 
   return (
     <div className="space-y-4">
+      {/* Compatibility link to the public, self-service Help Center (Slice 1).
+          This page's request/comment/cancel/status workflow is unchanged. */}
+      <p className="text-sm text-muted-foreground">
+        Looking for step-by-step guides instead?{" "}
+        <Link to="/help" className="font-medium text-primary underline-offset-4 hover:underline">
+          Browse the Help Center
+        </Link>
+        .
+      </p>
       {summary && (
         <SupportSummaryHeader website={activeWebsite} summary={summary} onNewRequest={() => setIsFormOpen(true)} />
       )}

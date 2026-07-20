@@ -138,6 +138,110 @@
 >   `verify-once` **worker binary** run against `Digi_SEO_Test` (needs
 >   `SUPABASE_SERVICE_ROLE_KEY`). Authoritative status: `CURRENT_PROJECT_STATUS.md`; details:
 >   `P1A_DOMAIN_OWNERSHIP_VERIFICATION_SIGNOFF.md` §3 + §10 (2026-07-18 entry).
+> - **Checkpoint update (2026-07-19, real worker-binary acceptance; no migration/schema/code
+>   change): P1a Domain Ownership Verification is COMPLETE — P1a is now MODULE-LOCKED.**
+>   The real `verify-once` worker-binary run — the last outstanding P1a acceptance item —
+>   is **PASS**. Operator ran `npm start -- --mode=verify-once` from `crawler-worker/` on
+>   `Digi_SEO_Test` (ref `snyzotgwwfomgafrsvfm`) after exporting `crawler-worker/.env` into
+>   the shell; the worker started with `environment=test`, `mode=verify-once`;
+>   `serviceRoleKey` was logged only as `[REDACTED]` — never printed. It claimed the only
+>   eligible verification (`id=41d2a3e8-3c7e-4b55-a282-6682a8349b69`,
+>   `website_id=fb98d59c-0f7d-4724-9f60-9db385bf2592`, host `digibility.ai`), performed a
+>   real Node DNS TXT lookup (not fixture) against
+>   `_digibility-site-verification.digibility.ai` (no record found), and persisted the
+>   result via the real `seo_ownership_verification_record_result` RPC: `status=failed`,
+>   reason `dns_not_found`, `last_checked_at=updated_at=2026-07-19 05:18:27.369182+00`, with
+>   one new `seo_ownership_verification_events` row (`event_type=failed`,
+>   `from_status=pending`, `to_status=failed`, `actor=worker`, `created_at=2026-07-19
+>   05:18:27.369182+00`). Worker logged `verify_once` completion and exited code 0. No
+>   challenge value, lease token, or service-role key was ever exposed. **The legitimate
+>   `failed`/`dns_not_found` DNS business outcome is not a defect** — the acceptance proves
+>   the trusted end-to-end worker-binary path (real service-role client, real claim RPC,
+>   real DNS resolution, real result RPC — none simulated), independent of the DNS business
+>   result. No source/migration/SQL/worker/config/crawl-contract/production file changed.
+>   **A formal P1a lock entry has been added to `MODULE_LOCKS.md`** — locked scope, protected
+>   contracts, locked files, and the unlock/additive-extension procedure. **P1b —
+>   verified-only crawl enqueue enforcement — is now the next implementation stage** (not
+>   started). Authoritative status: `CURRENT_PROJECT_STATUS.md`; details:
+>   `P1A_DOMAIN_OWNERSHIP_VERIFICATION_SIGNOFF.md` §4 + §10 (2026-07-19 entry);
+>   `MODULE_LOCKS.md` (new P1a lock entry).
+> - **Planning checkpoint (2026-07-19, P1b architecture validation; documentation only — no
+>   migration/schema/DB/code change):** the **P1b — Verified-only Crawl Enqueue Enforcement**
+>   architecture is validated and an authoritative implementation plan now exists
+>   (`P1B_VERIFIED_ONLY_CRAWL_ENQUEUE_PLAN.md`). Recorded design: enforce a verified-ownership
+>   precondition inside `public.seo_crawl_request` (the single production `INSERT INTO
+>   seo_crawl_jobs`; both the UI/`seo_crawl_request_audit` path and any direct authenticated
+>   call funnel through it; the worker never enqueues), placed after
+>   authentication/module-access/workspace-resolution/role-authorization and before
+>   eligibility/config validation and the INSERT. Ownership source of truth =
+>   `public.seo_ownership_verifications` (`website_id`, `method='dns_txt'`, `status='verified'`;
+>   no mirror onto `seo_websites`). Concurrency = **`FOR SHARE`** on the ownership row
+>   (write-time atomicity vs a concurrent revoke; `FOR KEY SHARE` insufficient; no deadlock).
+>   Error = plain `RAISE EXCEPTION 'Domain ownership must be verified before this website can
+>   be crawled.'` (default `P0001`; no custom SQLSTATE — the repo has zero). Migration =
+>   **one new additive `CREATE OR REPLACE FUNCTION public.seo_crawl_request(...)`** preserving
+>   name/params/return/grants/role/idempotency/single-active-job/event; the applied
+>   `20260713120025` Phase 16C migration is **not** edited; `seo_crawl_request_audit` unchanged
+>   (inherits the guard; a rejection rolls back the orchestration → no orphan audit run). Scope
+>   = new enqueue only (existing/queued/leased/running/retrying jobs, stale recovery, and the
+>   worker untouched). Six Phase 16C–16H verification scripts (16c/16d/16e/16f/16g/16h) will
+>   need verified-ownership fixtures at implementation time (with documented nuances); a new
+>   `supabase/test/seo_p1b_verified_only_crawl_enqueue_verification.sql` acceptance script is
+>   planned. The crawler enqueue contract is LOCKED — implementation requires the Crawler
+>   16C–16H additive-extension + evidence procedure and explicit approval; a formal P1b lock
+>   follows acceptance. **P1a remains LOCKED and untouched. P1b implementation NOT started.
+>   Production untouched.** See `P1B_VERIFIED_ONLY_CRAWL_ENQUEUE_PLAN.md`;
+>   `CURRENT_PROJECT_STATUS.md` (authoritative).
+> - **Implementation-artifacts checkpoint (2026-07-19, P1b build authored + statically
+>   reviewed; TEST-only files, NOT yet executed — no migration applied, no DB/production
+>   change):** the approved P1b build artifacts now exist in the repo:
+>   1. **New additive migration** `supabase/migrations/20260719120034_seo_p1b_verified_only_crawl_enqueue.sql`
+>      — `CREATE OR REPLACE FUNCTION public.seo_crawl_request(...)` adding ONE verified-ownership
+>      guard (`PERFORM 1 FROM public.seo_ownership_verifications WHERE website_id=p_website_id
+>      AND method='dns_txt' AND status='verified' FOR SHARE; IF NOT FOUND THEN RAISE EXCEPTION
+>      'Domain ownership must be verified before this website can be crawled.'`) after the role
+>      gate and before eligibility/config/INSERT. A byte-for-byte static diff vs the applied
+>      Phase 16C body confirms the guard is the ONLY change; name/params/return/SECURITY DEFINER/
+>      search_path/grants/checks/precedence/idempotency/single-active-job/INSERT/event are
+>      identical. The applied `20260713120025` migration is NOT edited; `seo_crawl_request_audit`
+>      is unchanged (inherits the guard); plain `P0001` (no custom SQLSTATE).
+>   2. **TEST-only rollback** `supabase/test/seo_p1b_verified_only_crawl_enqueue_rollback_TEST_ONLY.sql`
+>      — restores the exact pre-P1b body (verified identical to the 16C original).
+>   3. **Six 16C–16H verification scripts** updated with token-marked (`P1B-FIXTURE-TOKEN`)
+>      verified-ownership fixtures + self-cleaning teardown (16C: main + inactive site verified;
+>      16G: `g.web` verified, `g.wother` left unverified).
+>   4. **New P1b verification** `supabase/test/seo_p1b_verified_only_crawl_enqueue_verification.sql`
+>      (verified success direct+audit; pending/failed/revoked/missing blocked; authz/authn
+>      precedence with no ownership leak; idempotency/single-active-job/one-event compatibility;
+>      no-orphan-audit-run on rejected orchestration; static FOR SHARE + guard presence check).
+>   5. **Companion** `P1B_CONCURRENCY_VERIFICATION_GUIDE.md` — runnable two-session (Session A/B)
+>      FOR SHARE race procedure (the single-transaction runner cannot run a live race).
+>   **Static verification:** applied migrations, `crawler-worker/**`, and `src/**` unchanged
+>   (git-confirmed); RPC diff = guard only; rollback == original; SQL delimiters balanced.
+>   **TEST execution NOT yet performed. P1a remains LOCKED and untouched. P1b remains NOT
+>   locked** pending execution + acceptance. Production untouched; nothing committed/pushed/
+>   staged. Next: explicit approval to apply the migration + run the verification suite on
+>   `Digi_SEO_Test`. Details: `P1B_VERIFIED_ONLY_CRAWL_ENQUEUE_PLAN.md`;
+>   `CURRENT_PROJECT_STATUS.md` (authoritative).
+> - **Execution checkpoint (2026-07-19, P1b TEST-applied + verified + LOCKED; no production
+>   change):** the P1b migration `20260719120034_seo_p1b_verified_only_crawl_enqueue.sql` was
+>   dry-run (1 pending) → **applied to `Digi_SEO_Test`** via `supabase db push --linked`
+>   (recorded once in `supabase_migrations.schema_migrations`). **Migration total on TEST is
+>   now 34** (`…120001`–`…120034`); the only DB object changed is `public.seo_crawl_request`
+>   (via `CREATE OR REPLACE`), whose deployed contract was verified on TEST as unchanged except
+>   the added `FOR SHARE` verified-ownership guard (signature `p_website_id uuid, p_idempotency_key
+>   text, p_config jsonb`; `RETURNS uuid`; SECURITY DEFINER; `search_path=public`; grants
+>   `authenticated`/`anon`-denied all unchanged; plain `P0001` message; no custom SQLSTATE;
+>   `seo_crawl_request_audit` unchanged). **Results — ALL PASS:** P1b acceptance
+>   (`seo_p1b_verified_only_crawl_enqueue_verification.sql`); the six Phase 16C–16H DB
+>   verifications (with verified-ownership fixtures; negative reasons preserved — 16C
+>   inactivity/config, 16G authorization); worker suite **74/74**; and a **live two-session
+>   `FOR SHARE` concurrency** run (revoke-wins → enqueue blocked ~6.3 s then rejected with the
+>   `P0001` ownership message, 0 jobs; enqueue-wins → revoke blocked ~6.1 s until commit, 1 job).
+>   Fixture residue = 0; migration once; production never contacted; rollback not used. **A
+>   formal P1b lock entry was added to `MODULE_LOCKS.md`.** **P1a remains LOCKED and untouched.
+>   Production untouched.** Sign-off: `P1B_VERIFIED_ONLY_CRAWL_ENQUEUE_SIGNOFF.md`;
+>   `CURRENT_PROJECT_STATUS.md` (authoritative).
 
 ---
 

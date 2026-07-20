@@ -1,8 +1,11 @@
 # P1a Step 5 — Websites/onboarding ownership-verification UI (record)
 
-**Status:** `IMPLEMENTED + type/build-verified + MOCK-validated; authenticated operator Step 2.8 (double-submit) ACCEPTED — PASS (2026-07-17, final visible bounded post-action lock, §6c); authenticated browser role matrix ACCEPTED — PASS (2026-07-18, owner/admin/team_member/client + sign-out isolation on Digi_SEO_Test); sole remaining operator follow-up = real worker-binary run; additive UI; production untouched`.
-**Scope:** Step 5 only — the customer-facing Domain Ownership Verification UI in the
-Websites area. **P1a is NOT complete** (Step 6 sign-off pending). P1b excluded.
+**Status:** `IMPLEMENTED + type/build-verified + MOCK-validated; authenticated operator Step 2.8 (double-submit) ACCEPTED — PASS (2026-07-17, final visible bounded post-action lock, §6c); authenticated browser role matrix ACCEPTED — PASS (2026-07-18, owner/admin/team_member/client + sign-out isolation on Digi_SEO_Test); real verify-once worker-binary run ACCEPTED — PASS (2026-07-19); P1a Domain Ownership Verification COMPLETE and MODULE-LOCKED; additive UI; production untouched`.
+**Scope:** Step 5 — the customer-facing Domain Ownership Verification UI in the
+Websites area. **P1a is now COMPLETE and MODULE-LOCKED** (2026-07-19; Step 6
+sign-off and full operator acceptance done — see `P1A_DOMAIN_OWNERSHIP_VERIFICATION_SIGNOFF.md`
+and `MODULE_LOCKS.md`). P1b (verified-only crawl enqueue enforcement) is the next
+implementation stage, not started.
 **No DB/migration/RPC/RLS change; no worker change; no crawl UI change.**
 
 **Builds on:** Step 4 hooks/service (`useOwnershipVerification`, `ownershipVerificationService`).
