@@ -101,10 +101,16 @@ discipline for every task.
   coordinates (poppler unavailable for a raster render): valid 1-page A4, all
   sections, "Not connected" ×3, footer + version + page numbering, correct
   metadata, no garbage tokens, no overflow. Final Stage 1–3 regression (three SQL
-  scripts + tsc + build) PASS; 0 TEST residue. **The Reports v1 scope lock is
-  blocked solely on the Stage 2 operator two-session concurrency run** (still no
-  held-transaction DB session / DB password available). **Reports is NOT locked.**
-  See `SEO_IMPLEMENTATION_STATUS.md` §1 (Reports Stage 3 row) + §7.
+  scripts + tsc + build) PASS; 0 TEST residue. **True two-session advisory-lock
+  concurrency VERIFIED (2026-07-20)** — two independent `pg` connections on
+  `Digi_SEO_Test`: Session B blocked while A held the lock (`pg_locks` advisory
+  waiter; B waited ~2.66 s, finished 91 ms after A committed), both returned the
+  same UUID, exactly one canonical row, isolated disposable fixture with 0 residue.
+  **This closes the last item: Reports v1 (Stages 1–3) is COMPLETE and the Reports
+  module is LOCKED** (2026-07-20; migration range `20260720120035`–`20260720120038`;
+  entry in `docs/markdown/MODULE_LOCKS.md`). Deferred/out-of-scope (not defects):
+  CSV export, report history, scheduling, email delivery, public/secure sharing,
+  period comparison. See `SEO_IMPLEMENTATION_STATUS.md` §1 (Reports rows) + §7.
 - **Prior activity (2026-07-20):** **Reports Stage 3 — PDF export** implemented,
   **TEST-verified, and browser-accepted**. A read-only role-gated RPC
   `seo_report_export_data` (migration `20260720120038`; `STABLE` SECURITY DEFINER;
