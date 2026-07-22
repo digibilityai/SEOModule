@@ -12,6 +12,11 @@ import type {
 import { toAsync } from "@/lib/mockAsync";
 import { fetchLatestAudit } from "@/services/auditService";
 import { fetchOnboardingByWebsiteId } from "@/services/businessOnboardingService";
+import { runWithServiceAdapter } from "@/services/serviceAdapter";
+import {
+  fetchSupabaseCompetitorDetail,
+  fetchSupabaseCompetitors,
+} from "@/services/supabase/seoCompetitorSupabaseService";
 import {
   applyCompetitorStrengthStatus,
   COMPETITOR_DATA_SOURCE_STATUS,
@@ -20,25 +25,45 @@ import {
   listCompetitors,
 } from "@/mocks/competitorMockData";
 
+// Competitor Benchmarking Stage 1 — real-data read path. In Supabase mode these
+// read persisted `seo_competitors` rows (RLS); in mock mode the local store.
+// No silent mock fallback in Supabase mode.
 export async function fetchCompetitors(websiteId: string): Promise<Competitor[]> {
-  return toAsync(listCompetitors(websiteId));
+  return runWithServiceAdapter({
+    label: "competitorService.fetchCompetitors",
+    mock: () => toAsync(listCompetitors(websiteId)),
+    supabase: () => fetchSupabaseCompetitors(websiteId),
+    fallbackToMockOnError: false,
+  });
 }
 
 export async function fetchCompetitorDetail(id: string): Promise<Competitor | null> {
-  return toAsync(getCompetitorById(id));
+  return runWithServiceAdapter({
+    label: "competitorService.fetchCompetitorDetail",
+    mock: () => toAsync(getCompetitorById(id)),
+    supabase: () => fetchSupabaseCompetitorDetail(id),
+    fallbackToMockOnError: false,
+  });
 }
 
 export async function fetchCompetitorOverview(
   websiteId: string,
   websiteUrl: string,
 ): Promise<CompetitorOverview> {
-  const competitors = listCompetitors(websiteId);
+  const competitors = await fetchCompetitors(websiteId);
   const lastUpdated = competitors.reduce<string | null>((latest, c) => {
     if (!latest) return c.updated_at;
     return new Date(c.updated_at).getTime() > new Date(latest).getTime() ? c.updated_at : latest;
   }, null);
 
-  return toAsync({
+  // Truthful provenance: persisted rows are heuristic estimates, never external
+  // measured intelligence. Mock rows keep the mock-testing notice.
+  const isEstimated = competitors.some((c) => c.data_provenance === "estimated");
+  const dataSourceStatus = isEstimated
+    ? "Estimated competitor benchmarking from a heuristic model. No external competitor-data provider is integrated."
+    : COMPETITOR_DATA_SOURCE_STATUS;
+
+  return {
     website_id: websiteId,
     website_url: websiteUrl,
     competitor_count: competitors.length,
@@ -47,8 +72,8 @@ export async function fetchCompetitorOverview(
         ? Math.round(competitors.reduce((sum, c) => sum + c.overall_strength_score, 0) / competitors.length)
         : 0,
     last_updated: lastUpdated,
-    data_source_status: COMPETITOR_DATA_SOURCE_STATUS,
-  });
+    data_source_status: dataSourceStatus,
+  };
 }
 
 // Derives our score for each benchmark dimension from the latest completed
@@ -130,7 +155,7 @@ function gapLevelFor(ourScore: number, competitorAverage: number): GapLevel {
 }
 
 export async function fetchBenchmarkComparisons(websiteId: string): Promise<BenchmarkComparison[]> {
-  const competitors = listCompetitors(websiteId);
+  const competitors = await fetchCompetitors(websiteId);
   const ourScores = await computeOurBenchmarkScores(websiteId);
 
   if (competitors.length === 0) return [];
@@ -215,7 +240,7 @@ const OWNER_BY_GAP_TYPE: Record<CompetitorGapType, CompetitorGap["suggested_owne
 export async function fetchCompetitorGaps(websiteId: string): Promise<CompetitorGap[]> {
   const comparisons = await fetchBenchmarkComparisons(websiteId);
   const now = new Date().toISOString();
-  const competitors = listCompetitors(websiteId);
+  const competitors = await fetchCompetitors(websiteId);
   if (competitors.length === 0) return [];
   // Any competitor record carries the same website/workspace/user context —
   // used here only to satisfy the shared SeoBaseRecord fields on the gap.

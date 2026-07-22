@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useResolvedActiveWebsite } from "@/hooks/useResolvedActiveWebsite";
+import { isSupabaseMode } from "@/config/runtimeConfig";
 import { fetchOnboardingByWebsiteId } from "@/services/businessOnboardingService";
 import {
   fetchBenchmarkComparisons,
@@ -18,9 +19,16 @@ import { CompetitorGapSummary } from "./competitors/CompetitorGapSummary";
 import { BenchmarkComparisonSection } from "./competitors/BenchmarkComparisonSection";
 import { CompetitorCard } from "./competitors/CompetitorCard";
 
+// In real-data (Supabase) mode, competitors are read from stored records;
+// on-demand benchmark generation is a later stage, so Generate/Refresh is
+// disabled with an explanation. Mock mode keeps its existing local generation.
+const GENERATION_DEFERRED_REASON =
+  "Benchmark generation is coming in a later update. This shows your saved competitor data.";
+
 export function CompetitorAnalysisPage() {
   const queryClient = useQueryClient();
   const { activeWebsite, isLoading: isLoadingWebsite } = useResolvedActiveWebsite();
+  const supabaseMode = isSupabaseMode();
 
   const { data: onboarding, isLoading: isLoadingOnboarding } = useQuery({
     queryKey: ["seo-onboarding", activeWebsite?.id],
@@ -136,12 +144,17 @@ export function CompetitorAnalysisPage() {
         <CardHeader>
           <CardTitle>No benchmark data yet</CardTitle>
           <CardDescription>
-            Generate benchmark data for the competitors you listed in onboarding to see how{" "}
-            {activeWebsite.name} compares.
+            {supabaseMode
+              ? `There isn't saved competitor benchmark data for ${activeWebsite.name} yet. ${GENERATION_DEFERRED_REASON}`
+              : `Generate benchmark data for the competitors you listed in onboarding to see how ${activeWebsite.name} compares.`}
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <Button onClick={() => generateMutation.mutate()} disabled={generateMutation.isPending}>
+          <Button
+            onClick={() => generateMutation.mutate()}
+            disabled={generateMutation.isPending || supabaseMode}
+            title={supabaseMode ? GENERATION_DEFERRED_REASON : undefined}
+          >
             {generateMutation.isPending ? "Generating..." : "Generate benchmark data"}
           </Button>
         </CardContent>
@@ -157,6 +170,8 @@ export function CompetitorAnalysisPage() {
           overview={overview}
           onRefresh={() => generateMutation.mutate()}
           isRefreshing={generateMutation.isPending}
+          refreshDisabled={supabaseMode}
+          refreshDisabledReason={GENERATION_DEFERRED_REASON}
         />
       )}
       <SafetyNotice text={COMPETITOR_SAFETY_NOTICE} />

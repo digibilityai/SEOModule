@@ -19,7 +19,7 @@ export const AI_VISIBILITY_SAFETY_NOTICE =
   "Mock AI visibility data for local testing. Real AI answer tracking will come later. Nothing here guarantees an AI mention or ranking.";
 
 export const COMPETITOR_SAFETY_NOTICE =
-  "These are gaps and opportunities based on mock data, not guarantees. Closing a gap may improve visibility — it doesn't guarantee outranking a competitor.";
+  "These are gaps and opportunities based on estimated benchmarking, not guarantees. Closing a gap may improve visibility — it doesn't guarantee outranking a competitor.";
 
 export const ROADMAP_SAFETY_NOTICE =
   "This 90-day plan is a recommended sequence of next steps, not a guarantee of ranking or traffic improvement. Expert review is recommended for higher-risk actions.";

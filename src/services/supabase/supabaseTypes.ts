@@ -95,6 +95,12 @@ export const SEO_TABLES = {
   // Customer-readable (own workspace) via RLS; read-only from the frontend
   // (no write RPC / generation ships in Stage 1).
   reports: "seo_reports",
+
+  // Competitor Benchmarking Stage 1 — persisted competitor rows (migration
+  // 20260720123000). Workspace/website-scoped RLS (member SELECT incl. client;
+  // owner/admin/team_member write). Scores are truthful heuristic ESTIMATES
+  // (data_provenance='estimated'), never external measured data.
+  competitors: "seo_competitors",
 } as const;
 
 export type SeoTableName = (typeof SEO_TABLES)[keyof typeof SEO_TABLES];

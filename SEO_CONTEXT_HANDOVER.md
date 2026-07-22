@@ -125,6 +125,35 @@ discipline for every task.
   two-session concurrency run also remains outstanding). Details:
   `SEO_IMPLEMENTATION_STATUS.md` §1 (Reports Stage 3 row) + §7; `SEO_DECISIONS.md`
   A12.
+- **Latest activity (2026-07-20):** **Competitor Benchmarking — Stage 1
+  (persisted read path)** implemented + backend-verified. New additive table
+  `public.seo_competitors` (migration `20260720123000`; workspace/website-scoped
+  RLS — member SELECT incl. client read-only, owner/admin/team_member write) with
+  **truthful `data_provenance='estimated'`** (heuristic estimates — **no external
+  competitor-data provider integrated**). Reads wired through
+  `runWithServiceAdapter` (no silent mock fallback in Supabase mode); Generate/
+  Refresh disabled in Supabase mode (generation is Stage 2, deferred). SQL/RLS
+  verification PASS (owner=1/client=1/nonmember=0/anon=0; uniqueness; client
+  write-denied; 0 residue); vitest 20/20; tsc/build clean; mock-mode
+  backward-compat verified in browser. **Migration RECORDED on TEST (2026-07-20):**
+  DDL applied via isolated `db query` (not `db push`, to avoid the unrelated
+  pending SSO migration `20260720121000`), live schema proven byte-equivalent to
+  the migration, then `20260720123000` marked applied via `supabase migration
+  repair` — recorded once; **SSO `20260720121000` remains pending/untouched.**
+  **Supabase-mode reachability + route protection verified in-browser** (temporary,
+  since-restored `public/runtime-config.js` override; the tracked file forces
+  `SEO_DATA_MODE:"mock"`). **Authenticated Supabase-mode read-path matrix
+  OPERATOR-VERIFIED PASS (2026-07-22)** — signed-in owner on `digibility.ai`
+  confirmed empty state with no mock fallback, persisted `estimated` rows read
+  back + ordered, Generate/Refresh disabled with deferred-reason copy, refresh
+  persistence, website isolation, and no write-on-read (client read-only role
+  re-confirmed via SQL/RLS). Temporary runtime-config override restored
+  byte-for-byte (hash-verified); disposable acceptance fixture deleted with 0
+  residue. **Truthful-wording fix:** `COMPETITOR_SAFETY_NOTICE` "based on mock
+  data" → "based on estimated benchmarking" (accurate in Supabase mode; consistent
+  with A13). Competitor Benchmarking is **NOT locked / NOT complete** (generation =
+  Stage 2, deferred). Details: `SEO_IMPLEMENTATION_STATUS.md` §1 (Competitor
+  Stage 1 row).
 
 ## 5. Current development stage
 

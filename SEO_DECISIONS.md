@@ -89,6 +89,24 @@ narrative rationale lives in the retained ADRs (`ADR_CRAWLER_RUNTIME_ARCHITECTUR
   remain deferred. Chosen over an edge-function/server renderer (which would need
   new infra + deployment, out of scope). (2026-07-20; TEST-verified +
   browser-accepted.)
+- **A13. Competitor Benchmarking persists truthful `estimated` provenance**
+  (Competitor Stage 1, migration `20260720123000`, table `public.seo_competitors`).
+  Competitor scores are **synthetic heuristic estimates generated locally** — they
+  are NOT sourced from SEMrush / Ahrefs / GSC or any external intelligence
+  provider. The `data_provenance` column is **CHECK-constrained to `'estimated'`**
+  so a persisted row can never be mislabelled `live`/`measured`/`verified`/
+  `observed`/`external`; `generation_method` (e.g. `heuristic_v1`) optionally
+  identifies the estimate model. Workspace/website-scoped RLS (member SELECT incl.
+  client read-only; owner/admin/team_member write), unique on
+  `(website_id, normalized_competitor_url)`, read-only from the frontend in Stage 1
+  (no silent mock fallback in Supabase mode; Generate/Refresh disabled in Supabase
+  mode). Generation is a separate later stage. Any future real-provider integration
+  must add a new allowed provenance value via an additive migration — never relabel
+  estimated data. **User-facing copy must match this contract:** the
+  `COMPETITOR_SAFETY_NOTICE` was corrected from "based on mock data" to "based on
+  estimated benchmarking" (2026-07-22) so the notice stays truthful in Supabase
+  mode. (2026-07-20; TEST-verified; authenticated Supabase-mode read-path
+  OPERATOR-VERIFIED PASS 2026-07-22; NOT locked — generation = Stage 2, deferred.)
 
 ## 2. Security & concurrency decisions (current)
 
