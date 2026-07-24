@@ -196,6 +196,216 @@ narrative rationale lives in the retained ADRs (`ADR_CRAWLER_RUNTIME_ARCHITECTUR
   no defects found. Committed as `a594d1d`, fast-forwarded to `main`, pushed;
   part of **Competitor Benchmarking** (Stages 1–2) — **LOCKED 2026-07-24**
   (formal entry: `docs/markdown/MODULE_LOCKS.md`).)
+- **A17. Recommendation generation = server-side authoritative rule-based
+  conversion via a guarded RPC, first real use of the existing `is_current`/
+  `superseded_by` versioning** (Recommendation Generation Stage 1, migration
+  `20260724130000`). `public.seo_recommendation_generate(p_website_id uuid)
+  RETURNS SETOF seo_recommendations` is `SECURITY DEFINER` /
+  `search_path=public` / `authenticated`-only (**anon + PUBLIC EXECUTE
+  revoked in the same migration**, following the Competitor Stage 2A/A15
+  precedent, not the two-migration Reports/A10 precedent). Accepts **only
+  `p_website_id`**; derives the actor, workspace, and website business-context
+  fields (`business_name`/`industry`/`target_location`) server-side from
+  `seo_websites`. Authorizes owner/admin/team_member or global admin
+  (client/anon/non-member/cross-tenant denied with one non-leaking message;
+  a missing website is indistinguishable from unauthorized — same pattern as
+  A10/A15). **Return-shape deviation from the original design doc
+  (`SEO_RECOMMENDATION_GENERATION_ARCHITECTURE.md` §4, which specified
+  `RETURNS integer`):** this stage's task explicitly required the RPC return
+  the canonical current recommendation set after persistence, not a
+  transient count — implemented as `RETURNS SETOF public.seo_recommendations`,
+  ordered deterministically (`area, created_at, id`).
+
+  Candidate issues are limited to the latest **completed** `seo_audit_runs`
+  row with `status IN ('open','in_review')` and a non-null
+  `source_issue_fingerprint` (the Phase 16G crawler-provenance column, read
+  only — no locked crawler table is modified). Mapped via the existing mock's
+  `CATEGORY_TO_AREA` (11→8) and `ACTION_TYPE_BY_FIX_OWNER` (4 values),
+  reproduced verbatim server-side — no new categories, no AI/LLM inference.
+  The 7 on-page templates (`src/mocks/recommendationMockData.ts
+  ON_PAGE_TEMPLATES`) are **always** generated regardless of whether a
+  completed audit run exists, since they depend only on business-context
+  fields that always exist — a deliberate reading of an internal tension
+  between the design doc's §4.3 ("no completed run → returns 0", written
+  against the original integer-return shape) and §4.4 (which lists on-page
+  templates as part of "the desired set" unconditionally); only the
+  issue-derived half of the desired set is empty with no completed run.
+
+  **Identity + dedup:** two new nullable columns
+  (`source_issue_fingerprint`, `generation_method`) and two partial unique
+  indexes scoped `WHERE is_current` — `(website_id,
+  source_issue_fingerprint)` for issue-derived rows, `(website_id, area)`
+  for on-page rows (`issue_id IS NULL`) — mirroring A15's
+  `UNIQUE(website_id, normalized_competitor_url)` pattern, extended with the
+  `is_current` versioning dimension `seo_recommendations` already had but no
+  RPC or frontend code had ever exercised until this stage. Issues without a
+  `source_issue_fingerprint` are skipped non-destructively (no writer in the
+  current codebase produces one, but the column is nullable and there is no
+  stable cross-run identity to dedupe against without it).
+
+  **Replace-to-match (the core mechanic, three-way):** (1) no current row
+  with this identity → insert `status='suggested'`; (2) a current row exists,
+  content unchanged (`title`, `suggested_change`, `impact`, `risk`,
+  `action_type`) → **zero writes** (per the design doc's literal field list —
+  `effort`/`confidence_percentage`/`why_it_helps` are intentionally excluded
+  from the comparison, matching the architecture as written); (3) content
+  changed and the existing row's `status` is still `suggested` or
+  `needs_review` → supersede (old row `is_current=false` retired **before**
+  the new row is inserted, avoiding a momentary partial-unique-index
+  collision, then `superseded_by` set on the old row pointing at the new
+  row's id); (4) content changed but the existing row's `status` has moved to
+  any other value (a human has acted) → **do nothing at all** — no
+  supersede, no new row — a decision in progress is never silently
+  overwritten. Issue-derived rows no longer in the desired set (issue
+  resolved / no longer detected) are retired (`is_current=false,
+  superseded_by=NULL`) under the same untouched-status exception; on-page
+  rows are never auto-retired (no external issue that can "resolve").
+  Reuses `seo_supersede_recommendation`'s exact retire mechanic, inlined into
+  this RPC's transaction rather than called as a sub-statement (per the
+  design doc).
+
+  **No change to `seo_audit_issues`, `seo_approval_items`,
+  `seo_approval_transition`, the approval lifecycle, the Roadmap, or any
+  crawler table.** `ensureApprovalQueueGenerated` /
+  `ensureSupabaseApprovalQueueGenerated` (already idempotent, already wired)
+  will pick up rows from this RPC automatically once frontend integration
+  (Stage 2, not started) calls it. (2026-07-24; backend-only,
+  **uncommitted** — sits in temporary worktree/branch
+  `feat/seo-recommendation-generate-stage1`; TEST-applied via isolated `db
+  query --linked` + `migration repair`; full SQL verification ALL PASS
+  incl. the full regeneration-safety matrix for both an issue-derived and an
+  on-page row, dedup-index enforcement, RPC-return-equals-canonical-set,
+  idempotency with provable no-write, isolation, non-destructive no-audit
+  case, 0 residue; **true two-session advisory-lock concurrency VERIFIED
+  2026-07-24** — Session B directly observed `wait_event=advisory` while
+  Session A held the lock via `pg_sleep(10)`, unblocked cleanly on commit,
+  post-race state exactly 8 current rows / 8 distinct identities / 0
+  duplicates; see `SEO_RECOMMENDATION_GENERATION_STAGE1_VERIFICATION.md`.
+  **Not locked; not part of any locked module.** Stage 2 — frontend service
+  wiring, role-gated UI control, unit tests, authenticated operator
+  acceptance, and the lock decision — has not started.)
+
+  **AMENDMENT (2026-07-24, environment-control reconciliation).** The
+  paragraph above records what was directly observed on `Digi_SEO_Test` and
+  is retained unedited as the historical evidence trail — it is **not**
+  deleted or rewritten. It must, however, now be read together with the
+  following corrections, which govern the decision's actual current status:
+
+  - **The database architecture, schema, RPC contract, and generation logic
+    described above remain approved** — nothing about the design itself is
+    in question. This amendment concerns *process sequencing*, not
+    *correctness*.
+  - **The `Digi_SEO_Test` application recorded above was out of sequence.**
+    The governing delivery sequence for this project is **local development
+    → full local verification → `Digi_SEO_Test` → production**. This
+    migration was applied to and exercised against `Digi_SEO_Test` *before*
+    any local-verification step — because no local Postgres/Docker/`psql`
+    was available in the implementing session — on the strength of an
+    interactive in-session operator approval that was **not** recorded in
+    the controlling ChatGPT instruction trail. From that trail's authority,
+    the TEST application was unapproved.
+  - **The `Digi_SEO_Test` application has been fully rolled back**
+    (2026-07-24): the RPC, both partial unique indexes, and both new columns
+    were dropped; migration `20260724130000` is no longer recorded as
+    applied; a read-only audit proved the rollback safe (zero non-fixture
+    rows used the new columns, zero objects depended on the RPC or the two
+    indexes) and a post-rollback check proved the 8 pre-existing, unrelated
+    `seo_recommendations` rows were byte-for-byte untouched throughout;
+    every other migration version and the still-pending SSO migration
+    `20260720121000` are unchanged; 0 residue. `Digi_SEO_Test` now carries
+    none of this feature.
+  - **The historical TEST verification (SQL suite + live two-session
+    concurrency proof) does not satisfy the local-first verification gate.**
+    It is retained as engineering evidence that the design behaves as
+    intended, not as evidence that the correct gate was honored.
+  - **Stage 1 acceptance is deferred, pending genuine local verification.**
+    Correct current status: `IMPLEMENTED — NOT YET LOCALLY VERIFIED OR
+    ACCEPTED` (implementation — migration, RPC, SQL verification suite,
+    rollback script — remains uncommitted in the temporary worktree
+    `feat/seo-recommendation-generate-stage1`).
+  - **No further `Digi_SEO_Test` (or production) use is permitted for this
+    feature without an approval explicitly recorded in the controlling
+    ChatGPT instruction trail.** Full reconciliation record:
+    `SEO_RECOMMENDATION_GENERATION_STAGE1_VERIFICATION.md` §4–§5;
+    `SEO_IMPLEMENTATION_STATUS.md` §1 (Recommendation Generation Stage 1
+    row).
+
+  **SECOND AMENDMENT (2026-07-24, later same day — local verification
+  complete).** The gate the first amendment identified as missing
+  ("pending genuine local verification") is now satisfied — this note is
+  additive, the first amendment above is retained unedited:
+
+  - **Docker was installed by the operator**, confirmed working from
+    scratch (fresh `docker --version`/`docker info`/`docker ps`), and used
+    to start a real, isolated local Supabase stack — not `Digi_SEO_Test`,
+    not production, not `Digi_Visi`. Isolation directly proven: private
+    Docker-bridge server address, container names distinct from any project
+    ref, `.env.local`'s `VITE_SUPABASE_URL` directly confirmed to point at
+    `Digi_SEO_Test`'s own ref. `TARGET IS LOCAL AND IS NOT DIGI_SEO_TEST OR
+    PRODUCTION`, confirmed.
+  - **A new conflict was discovered and resolved:** `supabase start`/`db
+    reset` apply every migration file present unconditionally, which
+    included the deferred SSO migration on first boot. Read in full and
+    confirmed purely additive/non-destructive; A14's deferral rationale is
+    scope-control, not safety. Resolved via the smallest safe local-only
+    mechanism — temporarily excluding the file from
+    `supabase/migrations/` during `db reset`, restoring it immediately
+    after (the tracked file set is unchanged; only the running local
+    database's applied-migration state differs, exactly mirroring
+    `Digi_SEO_Test`) — confirmed reproducible across two consecutive
+    resets. No remote migration history was touched.
+  - **The RPC contract was re-verified directly on the local database**
+    (owner `postgres`, `SECURITY DEFINER`, `search_path=public`,
+    `authenticated` EXECUTE granted, `anon` denied, `RETURNS SETOF
+    seo_recommendations`) — matches the original design exactly.
+  - **The full SQL verification suite passed twice against the local
+    database**, exit code 0 both times, every NOTICE-level checkpoint
+    printed and confirmed (including `TEARDOWN ok — net-nothing` and `ALL
+    RECOMMENDATION GENERATION STAGE 1 CHECKS PASSED`), independently
+    reconfirmed at 0 residue both times.
+  - **The live two-session concurrency proof passed against the local
+    database:** Session A held the advisory lock via `pg_sleep(10)`;
+    Session B, staggered ~1.5s later, was directly observed at two separate
+    poll points as `wait_event_type=Lock, wait_event=advisory` — genuinely
+    blocked, not merely slow; Session B's completion timing matched
+    Session A's lock release almost exactly; post-race state was 8 current
+    rows / 8 distinct identities / 0 duplicates. **"A unit test that mocks
+    locking is not sufficient" is satisfied with direct evidence, against a
+    genuinely local database this time.**
+  - **Two CLI-tooling facts were discovered and documented** (not
+    architectural changes): `supabase db query --local`/`--db-url` cannot
+    execute a multi-statement script (`cannot insert multiple commands into
+    a prepared statement` — a real difference from the `--linked` Management
+    API code path); worked around via `docker exec -i <db-container> psql
+    ... < file`, which is still fully local. Both corrections, plus a local
+    `auth.users` fixture-seeding prerequisite (the shared UI-seed ids exist
+    as real accounts on `Digi_SEO_Test` but not in a fresh local database),
+    are recorded in `SEO_LOCAL_DATABASE_SETUP.md`, updated in place.
+  - **Corrected current status (at the time of this amendment):**
+    `IMPLEMENTED — LOCALLY VERIFIED — PENDING ACCEPTANCE REVIEW`.
+    Full evidence: `SEO_RECOMMENDATION_GENERATION_STAGE1_VERIFICATION.md` §6.
+
+  **THIRD AMENDMENT (2026-07-24, later same day — accepted, integrated,
+  locked).** Additive; the first and second amendments above are retained
+  unedited:
+
+  - **Stage 1 acceptance review is complete. Acceptance is approved.**
+    The implementation (migration, RPC, SQL verification suite, rollback
+    script, verification record) has been committed to the feature branch
+    `feat/seo-recommendation-generate-stage1` (based on `origin/main`
+    `71ac8fd0fd6087bb5435bea4cca865025bc27967`) — **not pushed, not merged
+    to `main` in this task.**
+  - **Recommendation Generation Stage 1 (backend only) is formally
+    MODULE-LOCKED (2026-07-24)** — new entry in `docs/markdown/MODULE_LOCKS.md`.
+    This lock is narrower than every prior lock in the registry: it covers
+    **backend only** — the additive schema and the guarded generation RPC,
+    genuinely locally verified. **No frontend integration, no unit tests,
+    and no authenticated operator/browser acceptance exist for this feature
+    yet** — Stage 2 remains explicitly deferred and UNLOCKED, its absence is
+    not a defect.
+  - **`Digi_SEO_Test` remains rolled back and untouched; production
+    untouched, throughout.** Corrected current status:
+    `IMPLEMENTED — LOCALLY VERIFIED — ACCEPTED — MODULE-LOCKED`.
 
 ## 2. Security & concurrency decisions (current)
 

@@ -55,6 +55,15 @@ discipline for every task.
   (`seo_cross_project_identity_bridge`) is present in the repo but **pending /
   unapplied on `Digi_SEO_Test`** and must not be applied without a separate,
   explicit SSO task (see `SEO_DECISIONS.md` A14).
+- **Recommendation Generation Stage 1 (accepted + locked, 2026-07-24) is
+  committed as `808d54d457ad9be713440ce2513bd65d6a0f11ea`
+  (`feat(seo): add guarded recommendation generation`) on branch
+  `feat/seo-recommendation-generate-stage1`, based on `origin/main`
+  `71ac8fd0fd6087bb5435bea4cca865025bc27967`.** Followed by a second commit
+  on the same branch adding the `docs/markdown/MODULE_LOCKS.md` entry and
+  these status-doc updates. **Neither commit is pushed to `origin`, and
+  neither is merged/fast-forwarded onto `main`** — that remains separate,
+  explicitly-approved future work.
 
 ## 4. Completed work (see `SEO_IMPLEMENTATION_STATUS.md` for evidence)
 
@@ -185,6 +194,109 @@ discipline for every task.
   additive-extension procedure. Details: `SEO_IMPLEMENTATION_STATUS.md` §1/§7/§8;
   `SEO_DECISIONS.md` A13/A15/A16.
 
+- **Latest activity (2026-07-24, same day):** **Recommendation Generation —
+  Stage 1 backend** now **BACKEND-IMPLEMENTED + SQL-VERIFIED +
+  CONCURRENCY-VERIFIED** (temporary worktree/branch
+  `feat/seo-recommendation-generate-stage1`, built from `origin/main`
+  `71ac8fd0fd6087bb5435bea4cca865025bc27967`; **not committed/pushed**).
+  Closes the previously-identified gap (`SEO_RELEASE_ROADMAP.md` §4.1): real
+  crawler-detected `seo_audit_issues` never populated `seo_recommendations`.
+  Additive migration `20260724130000_seo_recommendation_generate.sql` adds
+  `source_issue_fingerprint` + `generation_method` to `seo_recommendations`
+  plus two partial unique indexes (`WHERE is_current`), and one guarded
+  `SECURITY DEFINER` RPC `public.seo_recommendation_generate(p_website_id
+  uuid) RETURNS SETOF seo_recommendations` (`search_path=public`,
+  `authenticated` EXECUTE, anon + PUBLIC revoked). Server-derives
+  workspace/actor from `seo_websites`; authorizes owner/admin/team_member or
+  global admin (client/anon/non-member/cross-tenant denied, one non-leaking
+  message); reproduces the existing mock's `CATEGORY_TO_AREA` /
+  `ACTION_TYPE_BY_FIX_OWNER` mapping and 7 on-page templates server-side —
+  no AI/LLM, no new categories. **First real consumer of the existing
+  `is_current`/`superseded_by` versioning:** three-way replace-to-match
+  (insert-new / no-write-if-unchanged / supersede-if-changed-and-untouched /
+  leave-alone-if-a-human-already-acted / retire-if-resolved-and-untouched) —
+  proven for both an issue-derived row and an on-page row. Returns the
+  canonical current recommendation set (not a transient count). SQL
+  verification ALL PASS (contract, full authz matrix + no-leak, mapping,
+  eligibility, on-page interpolation, RPC-return-equals-canonical-set,
+  idempotency, the full regeneration-safety matrix, dedup-index enforcement,
+  isolation, non-destructive no-audit case; 0 residue across two consecutive
+  runs). **True two-session concurrency VERIFIED** — Session B directly
+  observed `wait_event=advisory` (genuinely blocked) while Session A held the
+  lock via `pg_sleep(10)`; post-race state = 8 current rows / 8 distinct
+  identities / 0 duplicates. Applied in isolation to `Digi_SEO_Test` (`db
+  query --linked`, then `migration repair`); SSO `20260720121000` still the
+  only pending migration; production untouched. Full evidence:
+  `SEO_RECOMMENDATION_GENERATION_STAGE1_VERIFICATION.md`. **Backend only —
+  no frontend, no approval-queue/roadmap change, no crawler change, not
+  locked.** Details: `SEO_IMPLEMENTATION_STATUS.md` §1/§7; `SEO_DECISIONS.md`
+  A17.
+- **Latest activity (2026-07-24, same day) — environment-control
+  reconciliation:** the `Digi_SEO_Test` application above was **out of
+  sequence.** The governing delivery sequence for this project is **local
+  development → full local verification → `Digi_SEO_Test` → production**;
+  this feature was applied to and exercised against `Digi_SEO_Test` before
+  any local-verification step, because no local Postgres/Docker/`psql` was
+  available and the interactive approval to substitute `Digi_SEO_Test` was
+  **not** recorded in the controlling ChatGPT instruction trail. A read-only
+  audit (recorded row-for-row in
+  `SEO_RECOMMENDATION_GENERATION_STAGE1_VERIFICATION.md` §4) proved rollback
+  was safe — zero non-fixture rows used the new columns, zero objects
+  depended on the RPC or the two new indexes, the 8 pre-existing unrelated
+  `seo_recommendations` rows (created 2026-07-09, unrelated to this feature)
+  were never touched. **The `Digi_SEO_Test` application was fully rolled
+  back:** the RPC, both partial unique indexes, and both new columns were
+  dropped; migration `20260724130000` is no longer recorded as applied;
+  every other migration version and the still-pending SSO migration
+  `20260720121000` are unchanged; the 8 pre-existing rows are verified
+  byte-for-byte unchanged; 0 residue. `Digi_SEO_Test` now carries none of
+  this feature. **Stage 1's SQL-verification and concurrency evidence (§4
+  above) is retained as historical engineering evidence only — it does
+  not satisfy the local-verification gate.** Correct current status:
+  `IMPLEMENTED — NOT YET LOCALLY VERIFIED OR ACCEPTED`. Implementation
+  (migration, RPC, SQL verification suite, rollback script) remains
+  uncommitted in the temporary worktree. Details:
+  `SEO_IMPLEMENTATION_STATUS.md` §1/§7; `SEO_DECISIONS.md` A17.
+- **Latest activity (2026-07-24, later same day) — genuine local
+  verification COMPLETE.** Following operator installation of Docker, a
+  real local Supabase stack was started (isolation proven: private
+  Docker-bridge address, container names distinct from any project ref,
+  `.env.local`'s `VITE_SUPABASE_URL` directly confirmed to point at
+  `Digi_SEO_Test`'s own ref, categorically different) —
+  `TARGET IS LOCAL AND IS NOT DIGI_SEO_TEST OR PRODUCTION`, confirmed. The
+  deferred SSO migration's first-boot auto-apply conflict (`supabase start`
+  applies every migration file unconditionally) was identified and resolved
+  via a proven, fully-reversible local-only mechanism — temporarily
+  excluding the file during `db reset`, restoring it after, confirmed
+  reproducible across two consecutive resets — producing a local baseline
+  correctly consistent with `Digi_SEO_Test`'s deferred state. The RPC
+  contract was re-verified directly on the local database (owner/`SECURITY
+  DEFINER`/`search_path`/grants/return-type all match). **The full SQL
+  verification suite passed twice** (every NOTICE checkpoint printed and
+  confirmed, incl. `TEARDOWN ok — net-nothing`; 0 residue independently
+  reconfirmed both times). **The live two-session concurrency proof passed
+  against the local database** — Session B directly observed
+  `wait_event_type=Lock, wait_event=advisory` at two poll points while
+  Session A held the lock via `pg_sleep(10)`; post-race state = 8 current
+  rows / 8 distinct identities / 0 duplicates. Two CLI-tooling corrections
+  were discovered and documented (`db query --local/--db-url` cannot run
+  multi-statement scripts — worked around via `docker exec ... psql`; the
+  concurrency poll query needed broadening since each `psql` statement is
+  its own `pg_stat_activity` row) — both recorded in
+  `SEO_LOCAL_DATABASE_SETUP.md`, which was updated in place with the
+  corrected, proven-working commands. **`Digi_SEO_Test` remains rolled back
+  and untouched throughout; production untouched.** Correct current status
+  at that point: `IMPLEMENTED — LOCALLY VERIFIED — PENDING ACCEPTANCE
+  REVIEW`. Details: `SEO_IMPLEMENTATION_STATUS.md` §1/§7.
+- **Latest activity (2026-07-24, later same day) — ACCEPTED and
+  integrated.** Stage 1 acceptance review is complete; the implementation
+  (migration, RPC, SQL verification suite, rollback script, verification
+  record) is committed to `feat/seo-recommendation-generate-stage1` (based
+  on `origin/main` `71ac8fd`) — see §3 for the exact commit. Formally
+  MODULE-LOCKED the same day (§6) — see `docs/markdown/MODULE_LOCKS.md` for
+  the new entry. Not pushed and not merged to `main` in this task. Full
+  evidence: `SEO_RECOMMENDATION_GENERATION_STAGE1_VERIFICATION.md` §6.
+
 ## 5. Current development stage
 
 Backend crawler + ownership + enqueue-enforcement stack is **complete, locked,
@@ -193,8 +305,13 @@ and TEST-verified**. **Reports v1 (Stages 1–3) is COMPLETE and LOCKED**
 read path + guarded generation + frontend integration) is COMPLETE and LOCKED**
 (2026-07-24; commits `2d5ff89`/`a594d1d`, fast-forwarded to `main`, pushed).
 Frontend product surfaces (Help Center, navigation) are development-complete.
-No feature implementation is in flight; the one remaining candidate next track
-is production-promotion planning — see §9.
+**Recommendation Generation Stage 1 (backend) is COMPLETE, ACCEPTED, and
+MODULE-LOCKED (2026-07-24)** — locally verified against a real, isolated
+local Supabase stack (Docker-based; full SQL suite + live two-session
+concurrency proof both passed), committed to
+`feat/seo-recommendation-generate-stage1` — **not yet pushed or merged to
+`main`** (see §9). **Stage 2 (frontend wiring) may now be scoped as a
+separate, explicitly-approved task** — not started.
 
 ## 6. Locked modules
 
@@ -202,8 +319,12 @@ Page Performance Tracker · Stage 6 (Off-Page Authority + AI Visibility) · Craw
 16C–16H · P1a Domain Ownership Verification · P1b Verified-only Crawl Enqueue
 Enforcement · **Reports v1 (persisted read + guarded generation + PDF export,
 Stages 1–3; LOCKED 2026-07-20)** · **Competitor Benchmarking (persisted read +
-guarded generation + frontend integration, Stages 1–2; LOCKED 2026-07-24).**
-(Details + unlock procedure: `MODULE_LOCKS.md`.)
+guarded generation + frontend integration, Stages 1–2; LOCKED 2026-07-24)** ·
+**Recommendation Generation — Stage 1 backend only (additive schema + guarded
+generation RPC; LOCKED 2026-07-24 — narrower than every other entry above:
+no frontend integration and no operator/browser acceptance exist yet; Stage 2
+remains explicitly UNLOCKED/not built).**
+(Details + unlock procedure: `docs/markdown/MODULE_LOCKS.md`.)
 
 ## 7. Production status
 
@@ -232,15 +353,27 @@ deployed. Hard invariant until a separately-approved promotion task passes the
 formal lock entry added to `docs/markdown/MODULE_LOCKS.md`. See §4 latest
 activity + `SEO_IMPLEMENTATION_STATUS.md` §1/§7/§8 for full evidence.
 
-The one remaining candidate track:
+**Recommendation Generation Stage 1 is DONE, ACCEPTED, and MODULE-LOCKED
+(2026-07-24)** — not a pending item. Local PostgreSQL/Supabase environment
+provisioned; genuine local verification (full SQL suite + live two-session
+concurrency proof) passed; Stage 1 reviewed and accepted; committed to
+`feat/seo-recommendation-generate-stage1` (§3); formal lock entry added to
+`docs/markdown/MODULE_LOCKS.md`. **Not yet pushed or merged to `main`** —
+that (or beginning Stage 2) is separate, explicitly-approved future work.
+**No further `Digi_SEO_Test` use is permitted for this feature without an
+approval explicitly recorded in the controlling ChatGPT instruction trail.**
+See §4 latest activity + `SEO_IMPLEMENTATION_STATUS.md` §1/§7 for full
+evidence.
 
-1. **Production-promotion planning / preflight** for the crawler + P1a + P1b stack
-   — a **planning-only** document (no DB action, no deploy) gating: production
-   migration order + rollback for P1a/16C–16H/P1b/Reports v1; worker deployment
-   runtime + secrets/service-role handling; Cloud Run deploy + the deferred
-   container-runtime verification; usage/subscription enforcement; rate limits;
-   monitoring/alerting; and the `BACKEND_MILESTONE_HANDOFF.md` §5 checklist.
-   Requires explicit approval before any production action.
+Other candidate track (independent of the above):
+
+- **Production-promotion planning / preflight** for the crawler + P1a + P1b stack
+  — a **planning-only** document (no DB action, no deploy) gating: production
+  migration order + rollback for P1a/16C–16H/P1b/Reports v1; worker deployment
+  runtime + secrets/service-role handling; Cloud Run deploy + the deferred
+  container-runtime verification; usage/subscription enforcement; rate limits;
+  monitoring/alerting; and the `BACKEND_MILESTONE_HANDOFF.md` §5 checklist.
+  Requires explicit approval before any production action.
 
 ## 10. Files expected to be involved in the next step (planning-only)
 

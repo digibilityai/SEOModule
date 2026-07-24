@@ -835,6 +835,150 @@ competitor data; historical trend tracking across generations.
 
 ---
 
+## Recommendation Generation — Stage 1 backend only (guarded generation RPC)
+
+**Status:** LOCKED (Stage 1 backend-only approved scope; Stage 2 frontend
+integration remains UNLOCKED — not yet built)
+**Locked on:** 2026-07-24
+**Owner documentation:** `SEO_IMPLEMENTATION_STATUS.md` (§1 Recommendation
+Generation Stage 1 row), `SEO_DECISIONS.md` A17 (+ three amendments),
+`SEO_CONTEXT_HANDOVER.md` §4,
+`SEO_RECOMMENDATION_GENERATION_STAGE1_VERIFICATION.md`,
+`SEO_RECOMMENDATION_GENERATION_ARCHITECTURE.md`
+
+**Commit checkpoint:** `808d54d457ad9be713440ce2513bd65d6a0f11ea`
+(`feat(seo): add guarded recommendation generation`), on branch
+`feat/seo-recommendation-generate-stage1`, based on `origin/main`
+`71ac8fd0fd6087bb5435bea4cca865025bc27967`. **Not yet pushed to `origin` and
+not yet merged/fast-forwarded onto `main`** — this differs from every other
+lock in this registry, each of which locked only after its implementation
+commit was pushed and merged. Locking a not-yet-pushed commit was an
+explicit instruction for this task; the commit is durably referenced by
+this branch name in the meantime.
+
+**Important:** unlike every other entry in this registry, this lock covers
+**Stage 1 backend only** — additive schema plus one guarded generation RPC,
+genuinely verified against a local, Docker-based Supabase/Postgres stack
+(not `Digi_SEO_Test`, not production — an earlier out-of-sequence
+`Digi_SEO_Test` application was fully rolled back before this lock; see
+`SEO_DECISIONS.md` A17's amendments). **No frontend integration, no unit
+tests, and no authenticated operator/browser acceptance exist for this
+feature yet.** Stage 2 (frontend service wiring, role-gated "Generate
+Recommendations" UI control, unit tests, operator acceptance) is explicitly
+deferred and UNLOCKED — its absence is not a defect, it has simply not been
+built. This is a narrower verification bar than every prior lock in this
+registry (all of which included frontend integration and real authenticated
+operator acceptance); do not assume this lock means the feature is reachable
+from any UI today — it is not.
+
+### Locked scope (implemented + locally verified)
+1. **Additive schema.** `seo_recommendations.source_issue_fingerprint`
+   (text, nullable) + `generation_method` (text, nullable); two partial
+   unique indexes scoped `WHERE is_current` —
+   `uq_seo_recommendations_issue_fingerprint (website_id,
+   source_issue_fingerprint)` and `uq_seo_recommendations_onpage_area
+   (website_id, area) WHERE issue_id IS NULL`.
+2. **Guarded generation RPC.** `SECURITY DEFINER`
+   `seo_recommendation_generate(p_website_id uuid) RETURNS SETOF
+   seo_recommendations` — `search_path=public`; `authenticated`-only (anon
+   + PUBLIC EXECUTE revoked up-front, no corrective follow-up). Accepts
+   **only** `p_website_id` — workspace/actor/business-context fields are all
+   server-derived from `seo_websites`. Authorizes owner/admin/team_member or
+   global admin (client/anon/non-member/cross-tenant denied with one
+   non-leaking message; a missing website is indistinguishable from
+   unauthorized). Deterministic rule-based reproduction of the existing mock
+   heuristic (`CATEGORY_TO_AREA`, `ACTION_TYPE_BY_FIX_OWNER`,
+   `ON_PAGE_TEMPLATES`) — no AI/LLM, no new categories. Candidate issues
+   limited to `status IN ('open','in_review')` from the latest completed
+   audit run. Transaction-scoped `pg_advisory_xact_lock` keyed to (website,
+   generation op). **First real consumer of the existing
+   `is_current`/`superseded_by` versioning:** three-way replace-to-match
+   (insert-new / no-write-if-unchanged / supersede-if-changed-and-untouched
+   / leave-alone-if-human-acted / retire-if-resolved-and-untouched). Returns
+   the canonical current recommendation set (`SETOF`, not a transient
+   count).
+
+### Protected contracts
+- RPC name/params/returns/grants: `seo_recommendation_generate(uuid)
+  RETURNS SETOF seo_recommendations` (`authenticated`-only, anon+PUBLIC
+  denied up-front); the two new columns + two partial unique indexes on
+  `seo_recommendations`; the advisory-lock key; the three-way
+  replace-to-match semantics (especially the terminal-status-protection
+  rule — a human-acted recommendation, `status` not in
+  `suggested`/`needs_review`, is never silently superseded or retired); the
+  mock-heuristic mapping tables reproduced server-side. No client-supplied
+  workspace, actor, content, or provenance.
+- Migration `20260724130000_seo_recommendation_generate.sql` is
+  **immutable**. It has been verified **locally only** — see "Important"
+  above; it has never been applied to `Digi_SEO_Test` or production (an
+  earlier out-of-sequence `Digi_SEO_Test` application was fully rolled back;
+  `SEO_DECISIONS.md` A17 amendments).
+
+### Locked files
+- Migration `supabase/migrations/20260724130000_seo_recommendation_generate.sql`
+  (immutable).
+- `supabase/test/seo_recommendation_generate_verification.sql` (+
+  `..._rollback_TEST_ONLY.sql`) — baseline; must remain PASS + self-cleaning.
+- `SEO_RECOMMENDATION_GENERATION_STAGE1_VERIFICATION.md` — local +
+  historical-TEST verification evidence baseline.
+
+### Verification evidence (2026-07-24)
+Full SQL verification suite PASS **twice**, against a genuine local
+Docker-based Supabase/Postgres stack (isolation proven — private
+Docker-bridge server address, `.env.local`'s `VITE_SUPABASE_URL` directly
+confirmed to point at `Digi_SEO_Test`'s distinct project ref); every
+NOTICE-level checkpoint confirmed (contract; full authz matrix incl.
+no-leak; category/fix_owner mapping; eligibility; on-page interpolation;
+RPC-return-equals-canonical-set; idempotency with provable no-write; the
+full regeneration-safety matrix — supersede/no-write/retire/preserve for
+both an issue-derived and an on-page row; dedup-index enforcement;
+isolation; non-destructive no-audit case); 0 fixture residue, independently
+reconfirmed both runs. **True two-session advisory-lock concurrency PASS**
+against the local database: Session B directly observed
+`wait_event_type=Lock, wait_event=advisory` at two poll points while
+Session A held the lock via `pg_sleep(10)`; unblocked cleanly on A's
+completion; post-race state = 8 current rows / 8 distinct identities / 0
+duplicates. Full detail: `SEO_RECOMMENDATION_GENERATION_STAGE1_VERIFICATION.md`
+§6. **Historical, out-of-sequence `Digi_SEO_Test` verification** (SQL suite
++ concurrency proof, same evidence bar) also passed prior to being rolled
+back — retained as corroborating historical evidence only, not the
+acceptance basis (§1–§2 of the same document). **No frontend unit tests and
+no authenticated operator/browser acceptance exist** — Stage 2 has not been
+built (see "Important" above). Production untouched throughout; the
+deferred cross-project SSO migration `20260720121000` remained
+pending/unapplied on `Digi_SEO_Test` throughout, and was resolved locally
+via a proven, reversible exclusion mechanism rather than being applied
+(`SEO_LOCAL_DATABASE_SETUP.md`).
+
+### Changes allowed / not allowed / evidence required
+Same additive-extension + evidence + explicit-approval procedure as every
+other entry in this registry. **Allowed** (separately approved, additive):
+Stage 2 frontend integration (see "Deferred scope" below); proven bug
+fixes; security fixes — additive migrations only, preserve every protected
+contract, re-run the SQL verification (+ the two-session concurrency if the
+advisory lock is touched), dated owner-doc note. **Not allowed** (without
+unlock/approval): weaken the role gate or the anon/PUBLIC-deny grants;
+remove/weaken the advisory lock or either unique index; add a second
+`seo_recommendations` generation write path bypassing the guard; change the
+terminal-status-protection rule (silently overwriting a human-acted
+recommendation); trust client-supplied generation content; edit the applied
+migration `20260724130000`; refactor-for-style on locked behaviour; apply
+this migration to `Digi_SEO_Test` or production without an approval
+explicitly recorded in the controlling ChatGPT instruction trail
+(`SEO_DECISIONS.md` A17 amendments).
+
+### Deferred scope — remains UNLOCKED (out of scope; not defects)
+**Stage 2 — frontend integration** (service wiring, role-gated "Generate
+Recommendations" UI control, unit tests, authenticated operator acceptance)
+— not started; see `SEO_RECOMMENDATION_GENERATION_ARCHITECTURE.md` §9–§10
+for its planned shape. Pushing/merging this branch to `main`. Any future
+`Digi_SEO_Test`/production application of this migration. Roadmap Backend
+integration (Roadmap Month 2 generation depends on real `seo_recommendations`
+rows existing, which requires Stage 2's UI to actually be used — see
+`SEO_ROADMAP_BACKEND_ARCHITECTURE.md` §4.3).
+
+---
+
 ## Other modules marked locked in `PROJECT_BOOTSTRAP.md`
 
 `PROJECT_BOOTSTRAP.md`'s Module Map currently lists the following as locked
