@@ -46,7 +46,8 @@ narrative rationale lives in the retained ADRs (`ADR_CRAWLER_RUNTIME_ARCHITECTUR
   Supabase mode** (read errors surface). Generation, exports, history,
   scheduling, delivery, and sharing are deferred to later Reports stages. Chosen
   deliberately (operator-confirmed) over per-field wide columns. (2026-07-20;
-  TEST-applied + backend-verified, browser acceptance pending — NOT locked.)
+  TEST-applied + backend-verified + browser-accepted; part of **Reports v1** —
+  **LOCKED** 2026-07-20.)
 - **A10. Report generation = server-side authoritative aggregation via a guarded
   RPC** (Reports Stage 2, migration `20260720120036`; anon-deny corrective
   `20260720120037`). `public.seo_report_generate(p_website_id, p_period_key)` is
@@ -60,8 +61,9 @@ narrative rationale lives in the retained ADRs (`ADR_CRAWLER_RUNTIME_ARCHITECTUR
   (no async worker). DB-native status semantics: content-completed = `archived`,
   authority-avoided = `avoided`, approvals pending = `suggested|needs_review`,
   fixed = `completed`, audit latest/previous = completed by `COALESCE(completed_at,
-  started_at) DESC`. (2026-07-20; TEST-applied + backend-verified; true two-session
-  concurrency + browser acceptance pending — NOT locked.)
+  started_at) DESC`. (2026-07-20; TEST-applied + backend-verified; true
+  two-session advisory-lock concurrency VERIFIED + browser-accepted; part of
+  **Reports v1** — **LOCKED** 2026-07-20.)
 - **A11. Deterministic page-performance Branch 3 + truthful unavailable-section
   provenance.** The report's improving/declining counts reuse the exact
   `resolvePerformanceStatus` rules (content aging/stale → needs_refresh overrides
@@ -88,7 +90,7 @@ narrative rationale lives in the retained ADRs (`ADR_CRAWLER_RUNTIME_ARCHITECTUR
   `jsPDF` (MIT) is a new frontend dependency; CSV/email/sharing/history/scheduling
   remain deferred. Chosen over an edge-function/server renderer (which would need
   new infra + deployment, out of scope). (2026-07-20; TEST-verified +
-  browser-accepted.)
+  browser-accepted; part of **Reports v1** — **LOCKED** 2026-07-20.)
 - **A13. Competitor Benchmarking persists truthful `estimated` provenance**
   (Competitor Stage 1, migration `20260720123000`, table `public.seo_competitors`).
   Competitor scores are **synthetic heuristic estimates generated locally** — they
@@ -106,7 +108,57 @@ narrative rationale lives in the retained ADRs (`ADR_CRAWLER_RUNTIME_ARCHITECTUR
   `COMPETITOR_SAFETY_NOTICE` was corrected from "based on mock data" to "based on
   estimated benchmarking" (2026-07-22) so the notice stays truthful in Supabase
   mode. (2026-07-20; TEST-verified; authenticated Supabase-mode read-path
-  OPERATOR-VERIFIED PASS 2026-07-22; NOT locked — generation = Stage 2, deferred.)
+  OPERATOR-VERIFIED PASS 2026-07-22; **committed + pushed 2026-07-24, HEAD
+  `e00caa2`**; NOT locked — generation = Stage 2, **designed (design recovery
+  complete) but NOT started**.)
+- **A14. Cross-project SSO identity bridge intentionally DEFERRED / unapplied.**
+  Migration `20260720121000` (`seo_cross_project_identity_bridge`) was pulled into
+  the repo with the SSO commit (`e1a918a`) but is **pending / unapplied on
+  `Digi_SEO_Test`** and is **not** applied by any SEO-module task. Rationale: SSO
+  is a separate cross-project concern outside the current SEO feature frontier;
+  applying it is deferred to a dedicated, explicitly-approved SSO task. **Operational
+  rule:** never let a `supabase db push` apply it as a side effect — new SEO
+  migrations are applied in isolation (`db query -f`) then recorded via
+  `supabase migration repair`, keeping `20260720121000` pending and untouched
+  (as done for Competitor Stage 1). (2026-07-24.)
+- **A15. Competitor generation = server-side authoritative heuristic via a guarded
+  RPC** (Competitor Stage 2A, migration `20260724120040`).
+  `public.seo_competitor_generate(p_website_id uuid) RETURNS integer` is
+  `SECURITY DEFINER` / `search_path=public` / `authenticated`-only (**anon +
+  PUBLIC EXECUTE revoked in the same migration** — no corrective follow-up, unlike
+  Reports A10). It accepts **only `p_website_id`** and derives everything else
+  server-side: the actor (`auth.uid()`), the workspace + website-url (from
+  `seo_websites`), the competitor URL list (from `seo_business_onboarding.competitors`
+  — **not** client-supplied), and the comparison score (from the latest completed
+  `seo_audit_runs`). Authorizes owner/admin/team_member or global admin
+  (client/anon/non-member/cross-tenant denied with one non-leaking message;
+  a missing website is indistinguishable from unauthorized). Scores are the repo's
+  **deterministic local heuristic** — `35 + (hash(url:dimension) % 55)` with
+  `hash h := (h*31 + ascii(c)) % 1000` (parity with
+  `src/mocks/competitorMockData.ts`), a 5-dimension mean for `overall`, and the
+  `competitorService`-parity 8-dimension our-score → `stronger|weaker|similar`
+  status. **The mock's non-deterministic regenerate "random nudge" is intentionally
+  NOT reproduced** so repeated generation against unchanged inputs is stable/
+  idempotent. Persists only `data_provenance='estimated'` (Stage 1 CHECK) +
+  `generation_method='heuristic_v1'` — **never** SEMrush/Ahrefs/GSC/measured/
+  observed/verified/live. Serializes with a transaction-scoped `pg_advisory_xact_lock`
+  keyed to (website, generation op); normalizes competitor URLs to the Stage 1 host
+  contract; enforces `UNIQUE(website_id, normalized_competitor_url)`; and persists
+  via **replace-to-match** (`INSERT … ON CONFLICT DO UPDATE` for the canonical set —
+  refreshing scores/status, preserving qualitative + authorship fields — then
+  `DELETE` of stale rows for that website only; other websites/workspaces untouched;
+  an empty onboarding list is non-destructive and returns 0). Returns the integer
+  size of the canonical set (the smallest useful signal for the future frontend;
+  Competitor has no single canonical id, unlike Reports' `uuid`). Synchronous; no
+  worker; no external provider. (2026-07-24; TEST-applied via isolated `db query`
+  + `migration repair` + full SQL verification; **true two-session advisory-lock
+  concurrency VERIFIED 2026-07-24** — a live race on `Digi_SEO_Test` directly
+  observed Session B blocked (`wait_event=advisory`) while Session A held the lock
+  via `pg_sleep(8)`, then unblocked cleanly on commit with exactly one canonical
+  row per competitor and 0 residue; see
+  `COMPETITOR_STAGE2A_CONCURRENCY_VERIFICATION.md`; **Stage 2B frontend integration +
+  operator browser acceptance PENDING; Competitor module NOT locked**; not
+  committed/pushed.)
 
 ## 2. Security & concurrency decisions (current)
 
@@ -159,7 +211,10 @@ narrative rationale lives in the retained ADRs (`ADR_CRAWLER_RUNTIME_ARCHITECTUR
 ## 5. Lock / change-control rules (current)
 
 - **L1.** Locked modules: Page Performance Tracker; Stage 6 (Off-Page + AI
-  Visibility); Crawler 16C–16H; P1a; P1b (all in `MODULE_LOCKS.md`).
+  Visibility); Crawler 16C–16H; P1a; P1b; **Reports v1 (persisted read + guarded
+  generation + PDF export, Stages 1–3; LOCKED 2026-07-20)** (all in
+  `MODULE_LOCKS.md`). Competitor Benchmarking Stage 1 is complete but **NOT
+  locked** (module incomplete; Stage 2 pending).
 - **L2.** Any change to a locked file/contract requires that lock's
   **additive-extension + evidence procedure** (reproduction or additive spec →
   expected/actual → evidence → additive-only design → **explicit approval** →
@@ -210,9 +265,14 @@ narrative rationale lives in the retained ADRs (`ADR_CRAWLER_RUNTIME_ARCHITECTUR
 - **R5. "One RPC across an arbitrarily long burst" as the ownership double-submit
   acceptance criterion** — retired during P1a Step 5 as unsound; the accepted
   guard is a per-action visible bounded post-action lock (idle→in_flight→cooldown).
-- **R6. Reports as a live/production feature** — not a decision so much as a
-  status correction: Reports is **mock-only** today (see
-  `SEO_IMPLEMENTATION_STATUS.md` §7); any "reports are live" reading is superseded.
+- **R6. "Reports is mock-only"** — **SUPERSEDED (2026-07-24).** This was true only
+  before the Reports backend increments. Reports v1 (Stages 1–3: persisted
+  Supabase-backed read path + guarded generation RPC + role-gated PDF export) is
+  now **COMPLETE and LOCKED** (2026-07-20; migration range
+  `20260720120035`–`20260720120038`; see `SEO_IMPLEMENTATION_STATUS.md` §1/§7 and
+  A9–A12). Mock mode still mirrors Reports for local/demo use, but Reports is no
+  longer mock-only. Any lingering "reports are mock-only / not backed" reading is
+  superseded.
 - **R7. Pre-execution P1b framing** ("P1b not locked / next action is approval to
   apply") in `P1B_VERIFIED_ONLY_CRAWL_ENQUEUE_PLAN.md`'s implementation-artifacts
   note — **superseded**; P1b is COMPLETE + LOCKED. The plan's §1 already states

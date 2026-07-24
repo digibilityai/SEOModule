@@ -5,7 +5,8 @@ follow the reading order in §2. It supersedes `CHATGPT_CONTEXT_HANDOVER.md` and
 the general handover role of `BACKEND_MILESTONE_HANDOFF.md` (both retained as
 historical — see `PROJECT_DOCUMENTATION_INDEX.md`).
 
-**Created / last reconciled:** 2026-07-20 (documentation consolidation).
+**Created / last reconciled:** 2026-07-24 (documentation consolidation after
+Reports v1 lock + Competitor Benchmarking Stage 1 commit/push).
 
 ---
 
@@ -37,15 +38,19 @@ service. TEST project = `Digi_SEO_Test` (ref `snyzotgwwfomgafrsvfm`);
 `DOCUMENTATION_WORKFLOW_RULES.md` still governs the docs-preflight + docs-in-sync
 discipline for every task.
 
-## 3. Current branch / HEAD / working-tree caveat
+## 3. Current branch / HEAD / working-tree state
 
-- **Branch:** `main`. **HEAD:** `0017e83` ("Initial import").
-- **IMPORTANT:** essentially the entire project (P1a, 16C–16H, P1b, Help Center,
-  navigation IA, Cloud Run readiness, all docs) exists as **uncommitted
-  working-tree changes** on top of that single import commit. **Preserve this
-  uncommitted work.** Do not `git reset`, `git checkout --`, discard, stage, or
-  commit unless a task explicitly instructs it. A new session must not assume a
-  clean tree means nothing was done — read the status files, not just `git log`.
+- **Branch:** `main`. **HEAD:** `e00caa21f837b892777117538bb6a3dd9343d1de`
+  (`feat(seo): add competitor benchmarking read path`).
+- **Working tree is CLEAN; local `main` = `origin/main` (pushed).** The project
+  is now committed history — recent commits: `e00caa2` (Competitor Stage 1),
+  `b976340` (Reports v1 complete + locked), `420f9ca` (cloudbuild), `e1a918a`
+  (SSO), `2b9537b` (SEO Intelligence module import). Use normal Git hygiene:
+  branch before non-trivial work; commit/push only when a task instructs it.
+- **Cross-project SSO is intentionally DEFERRED:** migration `20260720121000`
+  (`seo_cross_project_identity_bridge`) is present in the repo but **pending /
+  unapplied on `Digi_SEO_Test`** and must not be applied without a separate,
+  explicit SSO task (see `SEO_DECISIONS.md` A14).
 
 ## 4. Completed work (see `SEO_IMPLEMENTATION_STATUS.md` for evidence)
 
@@ -60,71 +65,21 @@ discipline for every task.
   **DEVELOPMENT-COMPLETE** (public foundation + contextual-help Waves 2B/2B.5/2C/3);
   Collapsible SEO Navigation IA; Cloud Run frontend container **readiness
   prepared (not deployed / not runtime-verified)**.
-- **Latest activity (2026-07-20):** **Reports Stage 1 — real-data read
-  foundation** authored, **TEST-applied to `Digi_SEO_Test`, and backend-verified**
-  (additive migration `20260720120035` adding `public.seo_reports` with
-  workspace/website-scoped RLS; SQL/RLS read-path verification PASS —
-  owner/client read, nonmember/anon denied; tsc/build clean). The Reports UI now
-  reads live data via `runWithServiceAdapter` with no silent mock fallback in
-  Supabase mode; generation/exports remain deferred (Generate disabled in
-  Supabase mode). **Authenticated browser acceptance PASSED (2026-07-20)** via an
-  operator-login session on `Digi_SEO_Test` (owner account; a TEST-only seeded
-  `seo_reports` row, since removed): populated render + value match, Supabase read
-  path 200, no mock fallback, Generate disabled, exports "coming soon",
-  website-switch isolation, refresh/Back, no console errors. **Reports Stage 1 is
-  now FULLY VERIFIED — but Reports remains NOT locked / NOT complete** (module-wide;
-  next is Stage 2 — guarded generation/persistence). Details:
-  `SEO_IMPLEMENTATION_STATUS.md` §1 (Reports Stage 1 row) + §7. (The earlier
-  2026-07-20 read-only Reports capability audit — Reports was then
-  frontend-only/mock — is superseded by this first backend increment.)
-- **Latest activity (2026-07-20):** **Reports Stage 2 — guarded generation &
-  persistence** authored, **TEST-applied to `Digi_SEO_Test`, and
-  backend-verified**. New SECURITY DEFINER RPC `seo_report_generate` (migration
-  `20260720120036` + corrective `20260720120037` denying anon EXECUTE) aggregates
-  the six live areas server-side (audit/approvals/content/page-performance/
-  authority/AI), marks the three unavailable areas truthfully via
-  `data_provenance`, and upserts the canonical `seo_reports` row under an advisory
-  lock; Generate is re-enabled in Supabase mode. SQL/authz/idempotency/
-  page-performance-parity verification PASS; tsc/build clean. **Authenticated
-  browser acceptance PASS (2026-07-20)** — operator-login matrix: real Generate →
-  `POST /rpc/seo_report_generate` → report renders via the Stage 1 read path with
-  values matching source, regenerate=same canonical row, period/website-switch
-  isolation, no mock fallback, exports "coming soon". **Sole remaining item:** a
-  true two-session advisory-lock concurrency run (needs a held-transaction DB
-  session — no psql/DB password in the automation env; operator procedure
-  provided). Reports remains **NOT locked / NOT complete**. Details:
-  `SEO_IMPLEMENTATION_STATUS.md` §1 (Reports Stage 2 row) + §7; `SEO_DECISIONS.md`
-  A10–A11.
-- **Latest activity (2026-07-20):** **Reports final scope-completion gate.** The
-  exported PDF was captured as a real `application/pdf` blob (via the live
-  Generate→export flow) and inspected via its decoded content stream + layout
-  coordinates (poppler unavailable for a raster render): valid 1-page A4, all
-  sections, "Not connected" ×3, footer + version + page numbering, correct
-  metadata, no garbage tokens, no overflow. Final Stage 1–3 regression (three SQL
-  scripts + tsc + build) PASS; 0 TEST residue. **True two-session advisory-lock
-  concurrency VERIFIED (2026-07-20)** — two independent `pg` connections on
-  `Digi_SEO_Test`: Session B blocked while A held the lock (`pg_locks` advisory
-  waiter; B waited ~2.66 s, finished 91 ms after A committed), both returned the
-  same UUID, exactly one canonical row, isolated disposable fixture with 0 residue.
-  **This closes the last item: Reports v1 (Stages 1–3) is COMPLETE and the Reports
-  module is LOCKED** (2026-07-20; migration range `20260720120035`–`20260720120038`;
-  entry in `docs/markdown/MODULE_LOCKS.md`). Deferred/out-of-scope (not defects):
-  CSV export, report history, scheduling, email delivery, public/secure sharing,
-  period comparison. See `SEO_IMPLEMENTATION_STATUS.md` §1 (Reports rows) + §7.
-- **Prior activity (2026-07-20):** **Reports Stage 3 — PDF export** implemented,
-  **TEST-verified, and browser-accepted**. A read-only role-gated RPC
-  `seo_report_export_data` (migration `20260720120038`; `STABLE` SECURITY DEFINER;
-  owner/admin/team_member only, client/anon/nonmember/cross-tenant denied, anon
-  revoked; returns the stored row unchanged) authorizes the export; the PDF is
-  rendered **client-side with jsPDF** (there is no BFF/edge function) from the
-  already-persisted report — **it never regenerates** (browser: Download PDF →
-  `seo_report_export_data` → `application/pdf` blob, no generate call). Unavailable
-  areas print "Not connected"; CSV/email/share stay disabled. SQL verification +
-  browser acceptance PASS; tsc/build clean. Reports remains **NOT locked / NOT
-  complete** (CSV/email/sharing/history/scheduling deferred; the Stage 2 operator
-  two-session concurrency run also remains outstanding). Details:
-  `SEO_IMPLEMENTATION_STATUS.md` §1 (Reports Stage 3 row) + §7; `SEO_DECISIONS.md`
-  A12.
+- **Reports v1 (Stages 1–3) — COMPLETE + LOCKED (2026-07-20; committed
+  `b976340`, pushed).** Persisted Supabase-backed read path (Stage 1, migration
+  `20260720120035`, `public.seo_reports` + workspace/website-scoped RLS) + guarded
+  `SECURITY DEFINER` generation RPC `seo_report_generate` (Stage 2, migrations
+  `20260720120036`/`…037`; server-derived workspace/period/actor; six live areas
+  aggregated; three unavailable areas truthful via `data_provenance`; advisory
+  lock + canonical upsert) + read-only role-gated `seo_report_export_data` RPC
+  with **client-side jsPDF** rendering that never regenerates (Stage 3, migration
+  `20260720120038`). Full SQL/authz/idempotency verification, true two-session
+  advisory-lock concurrency proof, and authenticated operator browser acceptance
+  all PASS on `Digi_SEO_Test`; tsc/build clean. Deferred/out-of-scope (not
+  defects): CSV export, history, scheduling, email delivery, public/secure
+  sharing, period comparison. Full chronology + evidence:
+  `SEO_IMPLEMENTATION_STATUS.md` §1 (Reports rows) + §7; `SEO_DECISIONS.md`
+  A9–A12; `docs/markdown/MODULE_LOCKS.md` (Reports v1 entry).
 - **Latest activity (2026-07-20):** **Competitor Benchmarking — Stage 1
   (persisted read path)** implemented + backend-verified. New additive table
   `public.seo_competitors` (migration `20260720123000`; workspace/website-scoped
@@ -151,22 +106,63 @@ discipline for every task.
   byte-for-byte (hash-verified); disposable acceptance fixture deleted with 0
   residue. **Truthful-wording fix:** `COMPETITOR_SAFETY_NOTICE` "based on mock
   data" → "based on estimated benchmarking" (accurate in Supabase mode; consistent
-  with A13). Competitor Benchmarking is **NOT locked / NOT complete** (generation =
-  Stage 2, deferred). Details: `SEO_IMPLEMENTATION_STATUS.md` §1 (Competitor
-  Stage 1 row).
+  with A13). **COMMITTED + PUSHED (2026-07-24, HEAD `e00caa2`).** Competitor
+  Benchmarking is **NOT locked / NOT complete** (generation = Stage 2).
+- **Latest activity (2026-07-24):** **Competitor Benchmarking Stage 2 — read-only
+  design recovery** completed (design/recommendation only; **no code, no
+  migration, no Git change**). Recommended architecture: one guarded
+  `SECURITY DEFINER` `seo_competitor_generate(p_website_id)` RPC (server-derived
+  workspace/actor, advisory lock, deterministic heuristic scoring,
+  replace-to-match upsert, truthful `data_provenance='estimated'`, anon-revoke
+  folded in; UI re-enables Generate/Refresh for owner/admin/team_member only).
+  Details: `SEO_IMPLEMENTATION_STATUS.md` §1 (Competitor Stage 1 row) + §8.
+- **Latest activity (2026-07-24):** **Competitor Benchmarking Stage 2A — guarded
+  generation RPC** now **BACKEND-IMPLEMENTED + TEST-VERIFIED + CONCURRENCY-VERIFIED** (branch
+  `feat/seo-competitor-generate-stage2a`; **not committed/pushed**). Additive
+  migration `20260724120040_seo_competitor_generate.sql`:
+  `public.seo_competitor_generate(p_website_id uuid) RETURNS integer`
+  (`SECURITY DEFINER`, `search_path=public`, `authenticated` EXECUTE, anon +
+  PUBLIC revoked) + internal `IMMUTABLE` helper `seo_competitor_heuristic_score`.
+  Server-derives actor/workspace/website-url + the onboarding competitor list +
+  the latest-audit comparison score (only `p_website_id` accepted); owner/admin/
+  team_member allowed, client/anon/non-member/cross-tenant denied with one
+  non-leaking message; deterministic heuristic (repo-confirmed hash rule, no
+  random nudge → stable/idempotent); advisory-lock serialized; replace-to-match
+  upsert; truthful `data_provenance='estimated'` + `generation_method='heuristic_v1'`.
+  Applied in isolation on TEST (`db query --linked`, then `migration repair`);
+  SQL verification ALL PASS + Stage 1 regression PASS; vitest 20/20; tsc/build
+  clean; 0 residue; **SSO `20260720121000` still the only pending migration;
+  production untouched.** **True two-session concurrency VERIFIED (2026-07-24)** —
+  live race on `Digi_SEO_Test` (two concurrent `supabase db query --linked`
+  sessions, same method as P1b/Reports): Session B directly observed blocked
+  (`wait_event=advisory`) on the same advisory-lock key while Session A held it via
+  `pg_sleep(8)`; after A committed, B unblocked; post-race state = exactly one
+  canonical row per competitor (no duplicates), replace-to-match re-confirmed, 0
+  fixture residue. Full evidence: `COMPETITOR_STAGE2A_CONCURRENCY_VERIFICATION.md`.
+  **Stage 2B (frontend integration) + operator browser
+  acceptance remain PENDING; Competitor module still NOT locked.** Details:
+  `SEO_IMPLEMENTATION_STATUS.md` §1 (Competitor Stage 2A row) + §8; `SEO_DECISIONS.md` A15.
 
 ## 5. Current development stage
 
 Backend crawler + ownership + enqueue-enforcement stack is **complete, locked,
-and TEST-verified**; the module is **between "TEST-complete" and
-"production-promotion planning."** Frontend product surfaces (Help Center,
-navigation) are development-complete. No feature implementation is in flight.
+and TEST-verified**. **Reports v1 (Stages 1–3) is COMPLETE and LOCKED**
+(committed/pushed, `b976340`). **Competitor Benchmarking Stage 1 (persisted read
+path) is COMPLETE, committed, and pushed** (`e00caa2`); **Stage 2A (guarded
+generation RPC) is BACKEND-IMPLEMENTED + TEST-VERIFIED (2026-07-24, not
+committed/pushed); Stage 2B (frontend integration) + operator acceptance remain
+PENDING.** Frontend product surfaces (Help Center, navigation) are
+development-complete. Two candidate next tracks (Competitor Stage 2B frontend
+integration vs production-promotion planning) await operator selection — see §9.
 
 ## 6. Locked modules
 
 Page Performance Tracker · Stage 6 (Off-Page Authority + AI Visibility) · Crawler
 16C–16H · P1a Domain Ownership Verification · P1b Verified-only Crawl Enqueue
-Enforcement. (Details + unlock procedure: `MODULE_LOCKS.md`.)
+Enforcement · **Reports v1 (persisted read + guarded generation + PDF export,
+Stages 1–3; LOCKED 2026-07-20).** (Details + unlock procedure: `MODULE_LOCKS.md`.)
+Competitor Benchmarking Stage 1 is **complete but NOT locked** (module incomplete;
+Stage 2 pending).
 
 ## 7. Production status
 
@@ -176,26 +172,37 @@ deployed. Hard invariant until a separately-approved promotion task passes the
 
 ## 8. Current risks
 
-- **Working-tree-only state** (§3): a careless `git` operation could discard the
-  whole project. Preserve uncommitted work.
-- **Reports is mock-only** but is user-visible; it lacks an explicit on-page
-  "preview/mock data" label — small honesty-labeling gap, not a functional defect.
+- **Deferred SSO migration `20260720121000` is pending on TEST** (§3): do not let
+  a `supabase db push` apply it as a side effect of an unrelated migration —
+  apply new migrations in isolation + `migration repair`, as done for Competitor
+  Stage 1.
 - **Cloud Run container-runtime verification is still deferred** — do not treat
   the container as production-verified.
 - **No frontend test/lint runner exists** — verification relies on `tsc`/build +
-  the Help Center content validator + live browser checks.
+  `vitest` (unit) + the Help Center content validator + live browser checks.
+- **Automation browser has no operator session** — authenticated Supabase-mode
+  acceptance must be operator-guided (as for Reports v1 and Competitor Stage 1).
 
 ## 9. Exact next step
 
-**Production-promotion planning / preflight** for the crawler + P1a + P1b stack —
-a **planning-only** document (no DB action, no deploy) gating: production
-migration order + rollback for P1a/16C–16H/P1b; worker deployment runtime +
-secrets/service-role handling; Cloud Run deploy + the deferred container-runtime
-verification; usage/subscription enforcement; rate limits; monitoring/alerting;
-and the `BACKEND_MILESTONE_HANDOFF.md` §5 checklist. Requires explicit approval
-before any production action. (A separate, feature-scoped alternative is **Reports
-backend wiring**, per the Reports audit — but the crawler-stack promotion is the
-recommended next major step.)
+Two candidate tracks — **operator selects one**:
+
+1. **Competitor Benchmarking Stage 2B (frontend generation integration)** — the
+   immediate next *feature* increment. **Stage 2A (backend generation RPC) is
+   DONE — TEST-verified 2026-07-24** (migration `20260724120040`; see §4 latest
+   activity + `SEO_IMPLEMENTATION_STATUS.md` §1/§8). Stage 2B: wire the Supabase
+   generate path through `runWithServiceAdapter` (call `seo_competitor_generate`,
+   no silent mock fallback), re-enable Generate/Refresh in Supabase mode for
+   owner/admin/team_member only, then run authenticated operator browser
+   acceptance. The Stage 2A backend branch `feat/seo-competitor-generate-stage2a`
+   is not yet committed/pushed. SSO `20260720121000` stays deferred.
+2. **Production-promotion planning / preflight** for the crawler + P1a + P1b stack
+   — a **planning-only** document (no DB action, no deploy) gating: production
+   migration order + rollback for P1a/16C–16H/P1b/Reports v1; worker deployment
+   runtime + secrets/service-role handling; Cloud Run deploy + the deferred
+   container-runtime verification; usage/subscription enforcement; rate limits;
+   monitoring/alerting; and the `BACKEND_MILESTONE_HANDOFF.md` §5 checklist.
+   Requires explicit approval before any production action.
 
 ## 10. Files expected to be involved in the next step (planning-only)
 
@@ -208,11 +215,12 @@ recommended next major step.)
 ## 11. Instructions for a new session
 
 - **Do not repeat completed audits or re-verify locked modules.** P1a, 16C–16H,
-  and P1b are done, locked, and TEST-verified; the Reports mock-only audit
-  (2026-07-20) is complete — do not re-run it. Trust the sign-offs; re-verify only
-  if a task explicitly changes that scope.
-- **Preserve existing uncommitted work** (§3) — never discard/reset/stage/commit
-  without explicit instruction.
+  P1b, and **Reports v1** are done, locked, and TEST-verified. Trust the sign-offs;
+  re-verify only if a task explicitly changes that scope.
+- **Git state is committed + pushed** (§3); the tree is clean and synced with
+  `origin/main`. Branch before non-trivial work; commit/push only when instructed.
+- **Do not apply the deferred SSO migration `20260720121000`** without a separate
+  explicit SSO task; apply new migrations in isolation to avoid pulling it in.
 - **Recommend the appropriate Claude model** in future prompts: use **Opus** for
   deep planning, architecture, security-sensitive or cross-cutting changes, and
   audits; **Sonnet** for well-scoped implementation/edits; **Haiku** for trivial
