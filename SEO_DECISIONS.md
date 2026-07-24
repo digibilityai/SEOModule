@@ -391,21 +391,28 @@ narrative rationale lives in the retained ADRs (`ADR_CRAWLER_RUNTIME_ARCHITECTUR
 
   - **Stage 1 acceptance review is complete. Acceptance is approved.**
     The implementation (migration, RPC, SQL verification suite, rollback
-    script, verification record) has been committed to the feature branch
+    script, verification record) was committed to the feature branch
     `feat/seo-recommendation-generate-stage1` (based on `origin/main`
-    `71ac8fd0fd6087bb5435bea4cca865025bc27967`) — **not pushed, not merged
-    to `main` in this task.**
+    `71ac8fd0fd6087bb5435bea4cca865025bc27967`) as `808d54d` and `e7b1fbe`,
+    then — in a subsequent finalization task — **pushed to `origin` and
+    fast-forwarded onto `main`** (`71ac8fd..e7b1fbe`, no merge commit,
+    no unrelated file staged). `origin/main` now carries the accepted
+    implementation.
   - **Recommendation Generation Stage 1 (backend only) is formally
     MODULE-LOCKED (2026-07-24)** — new entry in `docs/markdown/MODULE_LOCKS.md`.
-    This lock is narrower than every prior lock in the registry: it covers
-    **backend only** — the additive schema and the guarded generation RPC,
-    genuinely locally verified. **No frontend integration, no unit tests,
-    and no authenticated operator/browser acceptance exist for this feature
-    yet** — Stage 2 remains explicitly deferred and UNLOCKED, its absence is
-    not a defect.
+    This lock's *scope* is narrower than every prior lock in the registry:
+    it covers **backend only** — the additive schema and the guarded
+    generation RPC, genuinely locally verified. **No frontend integration,
+    no unit tests, and no authenticated operator/browser acceptance exist
+    for this feature yet** — Stage 2 remains explicitly deferred and
+    UNLOCKED, its absence is not a defect. (This lock's *process* — push +
+    fast-forward merge before the module was locked — now matches every
+    other entry in the registry exactly; that earlier deviation has been
+    resolved.)
   - **`Digi_SEO_Test` remains rolled back and untouched; production
     untouched, throughout.** Corrected current status:
-    `IMPLEMENTED — LOCALLY VERIFIED — ACCEPTED — MODULE-LOCKED`.
+    `IMPLEMENTED — LOCALLY VERIFIED — ACCEPTED — MODULE-LOCKED — PUSHED —
+    MERGED TO MAIN`.
 
 ## 2. Security & concurrency decisions (current)
 

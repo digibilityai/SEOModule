@@ -846,15 +846,13 @@ Generation Stage 1 row), `SEO_DECISIONS.md` A17 (+ three amendments),
 `SEO_RECOMMENDATION_GENERATION_STAGE1_VERIFICATION.md`,
 `SEO_RECOMMENDATION_GENERATION_ARCHITECTURE.md`
 
-**Commit checkpoint:** `808d54d457ad9be713440ce2513bd65d6a0f11ea`
-(`feat(seo): add guarded recommendation generation`), on branch
-`feat/seo-recommendation-generate-stage1`, based on `origin/main`
-`71ac8fd0fd6087bb5435bea4cca865025bc27967`. **Not yet pushed to `origin` and
-not yet merged/fast-forwarded onto `main`** — this differs from every other
-lock in this registry, each of which locked only after its implementation
-commit was pushed and merged. Locking a not-yet-pushed commit was an
-explicit instruction for this task; the commit is durably referenced by
-this branch name in the meantime.
+**Merged `main` checkpoint:** `e7b1fbebfc9d99fd69bbaceb93d277b4bea36c42`,
+comprising implementation commits
+`808d54d457ad9be713440ce2513bd65d6a0f11ea` (Stage 1 backend: migration +
+guarded RPC) and `e7b1fbebfc9d99fd69bbaceb93d277b4bea36c42` (this lock's own
+documentation), fast-forwarded onto `main` from
+`feat/seo-recommendation-generate-stage1` (`71ac8fd..e7b1fbe`, no merge
+commit) and pushed to `origin/main`.
 
 **Important:** unlike every other entry in this registry, this lock covers
 **Stage 1 backend only** — additive schema plus one guarded generation RPC,
@@ -971,11 +969,11 @@ explicitly recorded in the controlling ChatGPT instruction trail
 **Stage 2 — frontend integration** (service wiring, role-gated "Generate
 Recommendations" UI control, unit tests, authenticated operator acceptance)
 — not started; see `SEO_RECOMMENDATION_GENERATION_ARCHITECTURE.md` §9–§10
-for its planned shape. Pushing/merging this branch to `main`. Any future
-`Digi_SEO_Test`/production application of this migration. Roadmap Backend
-integration (Roadmap Month 2 generation depends on real `seo_recommendations`
-rows existing, which requires Stage 2's UI to actually be used — see
-`SEO_ROADMAP_BACKEND_ARCHITECTURE.md` §4.3).
+for its planned shape. Any future `Digi_SEO_Test`/production application of
+this migration. Roadmap Backend integration (Roadmap Month 2 generation
+depends on real `seo_recommendations` rows existing, which requires Stage
+2's UI to actually be used — see `SEO_ROADMAP_BACKEND_ARCHITECTURE.md`
+§4.3).
 
 ---
 

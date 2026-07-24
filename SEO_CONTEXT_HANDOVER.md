@@ -55,15 +55,17 @@ discipline for every task.
   (`seo_cross_project_identity_bridge`) is present in the repo but **pending /
   unapplied on `Digi_SEO_Test`** and must not be applied without a separate,
   explicit SSO task (see `SEO_DECISIONS.md` A14).
-- **Recommendation Generation Stage 1 (accepted + locked, 2026-07-24) is
-  committed as `808d54d457ad9be713440ce2513bd65d6a0f11ea`
-  (`feat(seo): add guarded recommendation generation`) on branch
-  `feat/seo-recommendation-generate-stage1`, based on `origin/main`
-  `71ac8fd0fd6087bb5435bea4cca865025bc27967`.** Followed by a second commit
-  on the same branch adding the `docs/markdown/MODULE_LOCKS.md` entry and
-  these status-doc updates. **Neither commit is pushed to `origin`, and
-  neither is merged/fast-forwarded onto `main`** — that remains separate,
-  explicitly-approved future work.
+- **Recommendation Generation Stage 1 (accepted + locked + merged,
+  2026-07-24) is `origin/main` HEAD:** `e7b1fbebfc9d99fd69bbaceb93d277b4bea36c42`
+  (`docs(seo): lock recommendation generation stage 1`), comprising
+  implementation commit `808d54d457ad9be713440ce2513bd65d6a0f11ea`
+  (`feat(seo): add guarded recommendation generation`) and this lock's own
+  documentation commit, both originally made on
+  `feat/seo-recommendation-generate-stage1` (based on `origin/main`
+  `71ac8fd0fd6087bb5435bea4cca865025bc27967`), then pushed to `origin` and
+  fast-forwarded onto `main` (`71ac8fd..e7b1fbe`, no merge commit) in a
+  subsequent finalization task. `main`'s own top-of-section HEAD line above
+  predates this and should be read together with this bullet.
 
 ## 4. Completed work (see `SEO_IMPLEMENTATION_STATUS.md` for evidence)
 
@@ -294,8 +296,21 @@ discipline for every task.
   record) is committed to `feat/seo-recommendation-generate-stage1` (based
   on `origin/main` `71ac8fd`) — see §3 for the exact commit. Formally
   MODULE-LOCKED the same day (§6) — see `docs/markdown/MODULE_LOCKS.md` for
-  the new entry. Not pushed and not merged to `main` in this task. Full
-  evidence: `SEO_RECOMMENDATION_GENERATION_STAGE1_VERIFICATION.md` §6.
+  the new entry. Full evidence:
+  `SEO_RECOMMENDATION_GENERATION_STAGE1_VERIFICATION.md` §6.
+- **Latest activity (2026-07-24, later same day) — pushed and merged to
+  `main`.** Pre-push validation passed (exactly the 2 expected commits;
+  clean working tree; no secrets in the diff; no migration-timestamp
+  collision; no local Supabase scaffolding committed). Feature branch
+  `feat/seo-recommendation-generate-stage1` pushed to `origin` unchanged.
+  `origin/main` re-confirmed unchanged at `71ac8fd` immediately before
+  merging; fast-forward merge (`71ac8fd..e7b1fbe`, no merge commit, no
+  conflicts, both commits preserved exactly) performed in a temporary
+  worktree and pushed as `origin/main`. Post-merge verification confirmed
+  all 9 changed files present on canonical `origin/main`, no scaffolding
+  merged, and the tree byte-identical to the feature branch. **`origin/main`
+  now carries Recommendation Generation Stage 1.** No database was contacted
+  at any point in this task.
 
 ## 5. Current development stage
 
@@ -308,10 +323,10 @@ Frontend product surfaces (Help Center, navigation) are development-complete.
 **Recommendation Generation Stage 1 (backend) is COMPLETE, ACCEPTED, and
 MODULE-LOCKED (2026-07-24)** — locally verified against a real, isolated
 local Supabase stack (Docker-based; full SQL suite + live two-session
-concurrency proof both passed), committed to
-`feat/seo-recommendation-generate-stage1` — **not yet pushed or merged to
-`main`** (see §9). **Stage 2 (frontend wiring) may now be scoped as a
-separate, explicitly-approved task** — not started.
+concurrency proof both passed), committed as `808d54d`/`e7b1fbe`,
+**fast-forwarded onto `main` and pushed** (`71ac8fd..e7b1fbe`). **Stage 2
+(frontend wiring) may now be scoped as a separate, explicitly-approved
+task** — not started.
 
 ## 6. Locked modules
 
@@ -353,17 +368,18 @@ deployed. Hard invariant until a separately-approved promotion task passes the
 formal lock entry added to `docs/markdown/MODULE_LOCKS.md`. See §4 latest
 activity + `SEO_IMPLEMENTATION_STATUS.md` §1/§7/§8 for full evidence.
 
-**Recommendation Generation Stage 1 is DONE, ACCEPTED, and MODULE-LOCKED
-(2026-07-24)** — not a pending item. Local PostgreSQL/Supabase environment
-provisioned; genuine local verification (full SQL suite + live two-session
-concurrency proof) passed; Stage 1 reviewed and accepted; committed to
+**Recommendation Generation Stage 1 is DONE, ACCEPTED, MODULE-LOCKED, and
+MERGED TO `main` (2026-07-24)** — not a pending item. Local PostgreSQL/
+Supabase environment provisioned; genuine local verification (full SQL
+suite + live two-session concurrency proof) passed; Stage 1 reviewed and
+accepted; committed as `808d54d`/`e7b1fbe` on
 `feat/seo-recommendation-generate-stage1` (§3); formal lock entry added to
-`docs/markdown/MODULE_LOCKS.md`. **Not yet pushed or merged to `main`** —
-that (or beginning Stage 2) is separate, explicitly-approved future work.
-**No further `Digi_SEO_Test` use is permitted for this feature without an
-approval explicitly recorded in the controlling ChatGPT instruction trail.**
-See §4 latest activity + `SEO_IMPLEMENTATION_STATUS.md` §1/§7 for full
-evidence.
+`docs/markdown/MODULE_LOCKS.md`; branch pushed to `origin`, fast-forwarded
+onto `main`, and pushed as `origin/main` (`71ac8fd..e7b1fbe`). **Beginning
+Stage 2 is separate, explicitly-approved future work.** **No further
+`Digi_SEO_Test` use is permitted for this feature without an approval
+explicitly recorded in the controlling ChatGPT instruction trail.** See §4
+latest activity + `SEO_IMPLEMENTATION_STATUS.md` §1/§7 for full evidence.
 
 Other candidate track (independent of the above):
 
