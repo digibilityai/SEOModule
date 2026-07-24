@@ -975,6 +975,263 @@ depends on real `seo_recommendations` rows existing, which requires Stage
 2's UI to actually be used — see `SEO_ROADMAP_BACKEND_ARCHITECTURE.md`
 §4.3).
 
+_Note (2026-07-24, additive — this entry's own text above is retained
+unedited): Stage 2 frontend integration described as "not started" above
+has since been built, accepted, and separately locked — see the
+"Recommendation Generation — Stage 2 frontend integration" entry below.
+This Stage 1 entry's own locked scope, protected contracts, and evidence
+remain exactly as written; only the "Stage 2 not started" framing is now a
+historical snapshot, current status is in the Stage 2 entry._
+
+---
+
+## Recommendation Generation — Stage 2 frontend integration
+
+**Status:** LOCKED (Stage 2 frontend-integration approved scope; deferred
+features below remain UNLOCKED)
+**Locked on:** 2026-07-24
+**Owner documentation:** `SEO_IMPLEMENTATION_STATUS.md` (§1 Recommendation
+Generation Stage 2 row), `SEO_DECISIONS.md` A18 (+ amendments),
+`SEO_CONTEXT_HANDOVER.md` §4,
+`SEO_RECOMMENDATION_GENERATION_STAGE2_VERIFICATION.md`,
+`SEO_LOCAL_DATABASE_SETUP.md`
+
+**Implementation commit:** `36d32af2a3841267d19a7911ad7e693e6e10f81d`
+(`feat(seo): integrate recommendation generation workflow`), on
+`feat/seo-recommendation-generate-stage2` (based on `origin/main`
+`c1de7fe5400d88189d1b826d884ef31779ab2290`, the same base as the locked
+Stage 1 backend). **This branch is committed locally only — it has not
+been pushed to `origin` and has not been merged to `main`.** This lock
+entry reflects local acceptance; push/merge is a separate, later step.
+
+**Important:** this lock protects the validated behaviour/contracts of the
+Stage 2 frontend-integration scope, genuinely verified against a local,
+Docker-based Supabase stack (not `Digi_SEO_Test`, not production) — real
+fixtures, real authenticated sign-in, a deterministic live loading-state
+proof, and a live no-eligible-findings proof, not code-review-only claims.
+It does **not** claim Recommendation Generation is deployed to
+`Digi_SEO_Test` or production, that Roadmap Backend integration exists, or
+that automatic/scheduled publishing exists — see "Deferred scope"; those
+exclusions are not defects.
+
+### Locked scope (implemented + locally verified)
+1. **Typed RPC service integration.**
+   `seoRecommendationSupabaseService.generateSupabaseRecommendations(websiteId)`
+   calls the locked Stage 1 RPC (`seo_recommendation_generate`) with
+   **only** `p_website_id`, validates the response is an array, then
+   **re-reads the canonical current set** through the pre-existing
+   `fetchSupabaseRecommendations` read path rather than trusting the RPC's
+   own returned rows — the backend's mapping/replace-to-match logic is
+   never reproduced client-side.
+2. **Service-adapter dispatch, no Supabase-to-mock fallback.**
+   `recommendationService.generateRecommendations(website)` dispatches via
+   `runWithServiceAdapter` with `fallbackToMockOnError:false` — a Supabase
+   generation error is never masked by mock data. The pre-existing mock
+   generator is reused unchanged (wrapped to self-derive the latest
+   completed mock audit's issues, matching the established
+   `generate<X>(website)` dispatch signature used by Competitor/Reports
+   Stage 2).
+3. **Role-gated Technical Audit UI.**
+   `RECOMMENDATION_GENERATE_ROLES = ['owner','admin','team_member']` +
+   `canGenerateRecommendations(role, supabaseMode)` — a **presentation-only
+   usability layer** (mock mode always enabled; Supabase mode queries the
+   real `seo_workspace_members.seo_role` via `getCurrentSeoRole`); the
+   RPC's own server-side gate remains the sole authoritative check,
+   re-confirmed via a direct in-page bypass fetch using a denied role's own
+   session token. `RecommendationGenerationPanel.tsx`, rendered on
+   `WebsiteAuditPage.tsx` only in Supabase mode on a completed audit.
+4. **Loading, success, error, and empty-findings behaviour.** Button text
+   `"Generating..."` + `disabled`/`aria-disabled` while the mutation is
+   pending; a live current-count badge + "Review in Approval Queue" link on
+   success; a generic destructive-text error message (never the raw
+   backend error) on failure; an explicit no-eligible-findings note when
+   the audit has zero open issues (generation still refreshes the 7 fixed
+   on-page templates in that case).
+5. **Duplicate-submit protection.** The same button that triggers the
+   mutation is disabled for its duration
+   (`disabled={isGenerating || !generatePermitted}`) — proven live via a
+   deterministic in-browser fetch gate: a second click attempted while a
+   request was held open produced zero additional RPC calls.
+6. **Query invalidation and canonical refresh.** `onSuccess` invalidates
+   `["seo-recommendations", websiteId]`, `["seo-onpage-recommendations",
+   websiteId]`, and `["seo-approval-queue", websiteId]` — the UI reflects
+   the canonical persisted state with no manual reload.
+7. **Approval Queue downstream compatibility.** `ApprovalQueuePage.tsx`,
+   `approvalService.ts`, and `seoApprovalSupabaseService.ts` were **not
+   modified** — their pre-existing, already-idempotent
+   `ensureApprovalQueueGenerated` pipeline consumes real
+   `seo_recommendations` rows automatically once Stage 2 generation
+   produces them.
+8. **Stage 2 service tests (15 new, `.ts`-only — this repo's Vitest config
+   does not collect `.tsx` component tests, a pre-existing, unrelated
+   gap):** `seoRecommendationSupabaseService.test.ts` (6 — exact RPC
+   args, error-no-fallback, response-type validation, UUID validation,
+   read-back-not-raw-payload proof, empty-array-is-valid) and
+   `recommendationService.test.ts` (9 — full role matrix, Supabase-branch
+   dispatch args, error propagation unmasked, mock-branch still
+   functions). Full suite 48/48 pass (was 33/33); `tsc`/`build` clean.
+9. **Local browser/operator acceptance evidence.** Real authenticated
+   sign-in (owner + client) against the real application; owner: 0→9→9
+   recommendations across generate/repeat-generate with 0 duplicates
+   (DB-confirmed), an operator-approved recommendation surviving a
+   subsequent regeneration untouched; client: control disabled with the
+   correct tooltip, 0 RPC calls for the disabled control, a direct backend
+   bypass attempt denied with the RPC's own non-leaking message; a
+   deterministic live loading-state proof (gate-based, not timing-based);
+   a live no-eligible-findings proof (a disposable second website with a
+   completed, issue-free audit correctly generating exactly the 7 on-page
+   templates, 0 issue-derived rows, 0 auto-created approval items).
+10. **Local Supabase privilege-bootstrap support and documentation.**
+    `supabase/test/local_supabase_privilege_bootstrap.sql` — an idempotent,
+    RLS-preserving script (never disables or bypasses RLS; only restores
+    the standard `anon`/`authenticated` table-DML grant convention that a
+    hosted Supabase project provisions automatically and that the local
+    CLI's `db reset` destroys) — and `SEO_LOCAL_DATABASE_SETUP.md`, the
+    reproducible end-to-end local setup procedure. Both are local-only:
+    the script lives under `supabase/test/`, not `supabase/migrations/`,
+    carries no timestamp-prefix filename, and cannot be auto-applied by
+    `supabase db push`/`db reset` as a migration.
+
+### Existing Stage 1 relationship
+- The **Stage 1 backend lock** ("Recommendation Generation — Stage 1
+  backend only", locked 2026-07-24, above) **remains separate and
+  unchanged** by this entry — its locked scope, protected contracts,
+  locked files, and evidence are untouched.
+- Stage 2 **consumes** the locked Stage 1 RPC exactly as designed (only
+  `p_website_id` sent; canonical set re-read afterward) — it does not call
+  any other write path into `seo_recommendations`.
+- Stage 2 **does not alter** Stage 1's authorization logic (role gate,
+  anon/PUBLIC deny), its mapping tables (`CATEGORY_TO_AREA`/
+  `ACTION_TYPE_BY_FIX_OWNER`/`ON_PAGE_TEMPLATES`), or its
+  replace-to-match/versioning behaviour in any way — no Stage 1 file is
+  part of this Stage 2 commit or lock.
+
+### Protected contracts
+- Frontend function signatures: `generateSupabaseRecommendations(websiteId:
+  string): Promise<SeoRecommendation[]>`; `generateRecommendations(website:
+  SeoWebsite): Promise<SeoRecommendation[]>`; `canGenerateRecommendations(role:
+  SeoUserRole | null, supabaseMode: boolean): boolean`;
+  `RECOMMENDATION_GENERATE_ROLES`.
+- `RecommendationGenerationPanel` prop contract (`recommendationCount,
+  issueCount, isGenerating, isError, generatePermitted, deniedReason,
+  onGenerate`) and its rendered states (idle/generating/error/
+  no-eligible-findings/success).
+- React Query keys: `["seo-recommendations", websiteId]`,
+  `["seo-onpage-recommendations", websiteId]`,
+  `["seo-approval-queue", websiteId]`, `["seo-current-role", workspaceId]`.
+- The "RPC then re-read the canonical set" service shape — never trust the
+  RPC's own returned rows as the UI's source of truth.
+- `fallbackToMockOnError:false` on the Supabase generation dispatch — never
+  silently substitute mock data for a real Supabase error.
+- The local privilege-bootstrap script's local-only, idempotent, RLS-
+  preserving contract.
+
+### Locked files
+- `src/services/supabase/seoRecommendationSupabaseService.ts` (the
+  `generateSupabaseRecommendations` addition; the pre-existing read
+  functions were already unlocked/unowned by any prior lock).
+- `src/services/recommendationService.ts` (the `generateRecommendations`,
+  `canGenerateRecommendations`, `RECOMMENDATION_GENERATE_ROLES` additions).
+- `src/pages/seo/audit/RecommendationGenerationPanel.tsx` (new file).
+- The Stage 2 integration block in `src/pages/seo/WebsiteAuditPage.tsx`
+  (the `currentSeoRole`/`recommendations` queries,
+  `generateRecommendationsMutation`, `invalidateRecommendationData`, and
+  the `<RecommendationGenerationPanel>` render — the pre-existing
+  `<CrawlPanel>` integration and the rest of this file remain governed by
+  the Crawler 16C–16H lock, unchanged by this entry).
+- `src/services/supabase/supabaseTypes.ts` (the
+  `SEO_RPCS.recommendationGenerate` constant).
+- `src/services/recommendationService.test.ts`,
+  `src/services/supabase/seoRecommendationSupabaseService.test.ts` —
+  baselines; must remain PASS.
+- `supabase/test/local_supabase_privilege_bootstrap.sql`,
+  `SEO_LOCAL_DATABASE_SETUP.md` — baselines for local verification;
+  must remain idempotent, RLS-preserving, and local-only.
+
+### Verification evidence (2026-07-24)
+Full acceptance review against the actual final source (every changed/new
+file read in full) found no material defect. `tsc --noEmit` clean; focused
+Stage 2 tests 15/15 pass; full suite 48/48 pass, 0 regressions; `npm run
+build` clean (pre-existing chunk-size advisory only); secret scan 0 real
+matches; migration-directory integrity confirmed (zero diff in
+`supabase/migrations/`); full diff review confirmed only intentional
+changes. Local database verification against a genuine local Docker-based
+Supabase stack: a local-Supabase-CLI-only base-table-grant gap
+(`authenticated`/`anon` missing `SELECT/INSERT/UPDATE/DELETE` after a
+`db reset`, since the local CLI's schema-drop destroys a bootstrap a
+hosted project never loses) was reproduced from a genuinely clean reset
+(raw anon-key REST request returning `401`/`42501` with PostgREST's own
+`GRANT` hint) and fixed with the idempotent, RLS-preserving bootstrap
+script referenced above — RLS independently re-confirmed enabled on all 53
+public tables both before and after the fix; **no change to the locked
+Stage 1 migration/RPC was needed.** Real fixtures proved idempotent
+generation (repeat clicks, 0 duplicates), operator-touched-row
+preservation across regeneration, client denial at both the UI and backend
+layers (direct bypass attempt), a deterministic live loading-state proof,
+and a live no-eligible-findings proof (7 on-page-only rows, 0
+issue-derived, 0 auto-created approval items). Full detail:
+`SEO_RECOMMENDATION_GENERATION_STAGE2_VERIFICATION.md`.
+
+### Changes allowed / not allowed / evidence required
+Same additive-extension + evidence + explicit-approval procedure as every
+other entry in this registry. **Allowed** (separately approved, additive):
+proven bug fixes; security fixes; additive UI/service extensions for the
+deferred features below — preserve every protected contract above, re-run
+the focused Stage 2 tests + full suite + `tsc`/build, dated owner-doc note.
+**Not allowed** (without unlock/approval): call any RPC other than
+`seo_recommendation_generate` to write `seo_recommendations`; send any
+client-supplied field beyond `p_website_id`; trust the RPC's own returned
+rows instead of re-reading the canonical set; add a silent mock fallback
+on a Supabase error; weaken or remove the duplicate-submit guard; change
+the role-gate roles without a corresponding, separately-approved Stage 1
+RPC change; modify `ApprovalQueuePage.tsx`/`approvalService.ts`/
+`seoApprovalSupabaseService.ts` under this lock (they are unmodified and
+not owned by it); weaken the local privilege-bootstrap script's RLS
+preservation or grant scope; place the bootstrap script under
+`supabase/migrations/` or give it a timestamp-prefix filename; edit the
+locked Stage 1 migration or RPC.
+
+### Deferred scope — remains UNLOCKED (out of scope; not defects)
+Roadmap Backend (Roadmap Month 2 generation depends on real
+`seo_recommendations` rows existing, which Stage 2 now makes possible, but
+the Roadmap Backend integration itself has not been built — see
+`SEO_ROADMAP_BACKEND_ARCHITECTURE.md`); Roadmap frontend; automatic/
+scheduled recommendation publishing (generation never auto-publishes or
+auto-approves — every generated row is `suggested` and requires a separate
+Approval Queue action); future recommendation-editing features; future
+role-model changes; future audit-generation behaviour changes; production
+rollout; `Digi_SEO_Test` rollout (this feature has never been applied to
+either). The Stage 2 branch itself is **committed locally but not yet
+pushed to `origin` or merged to `main`** — push/merge is a separate,
+later, explicitly-approved step.
+
+### Evidence required before modification (unlock / additive-extension procedure)
+1. Reproduction steps (for a bug fix) or the additive feature spec.
+2. Expected behaviour. 3. Actual behaviour (bug) or the extension's contract.
+4. Evidence (screenshot, console error, failing test, DB result, or log).
+5. Root-cause analysis (bug) or additive-only design confirmation.
+6. Explicit human approval to modify the locked module.
+7. Confirmation the change is additive and preserves every protected
+   contract above, and does not touch the separate Stage 1 lock.
+
+### Required after an approved change
+- Focused Stage 2 tests + full `vitest run` + `tsc`/`build` pass.
+- If the local privilege-bootstrap script is touched: re-run it against a
+  genuinely clean `db reset` and confirm its own verification block still
+  passes (grants restored, RLS unchanged).
+- Owner documentation receives a dated note.
+- `SEO_IMPLEMENTATION_STATUS.md` updated if status changed.
+
+_Prior status history: implemented + locally verified, pending acceptance
+review 2026-07-24 (`SEO_RECOMMENDATION_GENERATION_STAGE2_VERIFICATION.md`,
+initial version); two evidence gaps (privilege-bootstrap clean-reset
+reproduction, live loading/no-eligible-findings proof) closed same day in a
+follow-up session with no implementation-code change; formal acceptance
+review, commit
+(`36d32af2a3841267d19a7911ad7e693e6e10f81d`), and this lock all completed
+2026-07-24 — the basis for this entry. **Not pushed, not merged to
+`main`.**_
+
 ---
 
 ## Other modules marked locked in `PROJECT_BOOTSTRAP.md`

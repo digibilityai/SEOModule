@@ -414,6 +414,151 @@ narrative rationale lives in the retained ADRs (`ADR_CRAWLER_RUNTIME_ARCHITECTUR
     `IMPLEMENTED — LOCALLY VERIFIED — ACCEPTED — MODULE-LOCKED — PUSHED —
     MERGED TO MAIN`.
 
+- **A18. Recommendation generation frontend integration = same adapter +
+  role-gate pattern as Competitor Stage 2B / Reports Stage 2**
+  (Recommendation Generation Stage 2, frontend-only, no migration).
+  `seoRecommendationSupabaseService.generateSupabaseRecommendations` calls
+  the Stage 1 RPC with only `p_website_id`, validates the response is an
+  array, then re-reads the persisted rows through the existing read path
+  (`fetchSupabaseRecommendations`) — mirroring A16's "RPC then re-read the
+  canonical set" shape so the backend's `CATEGORY_TO_AREA`/
+  `ACTION_TYPE_BY_FIX_OWNER` mapping is never duplicated in the frontend.
+  `recommendationService.generateRecommendations` dispatches through
+  `runWithServiceAdapter` with `fallbackToMockOnError:false` (A2/A17 — no
+  silent mock fallback on a real Supabase error); the pre-existing mock
+  generator (`generateRecommendationsFromAudit`'s underlying logic) is
+  reused unchanged inside a new `generateMockRecommendations` wrapper that
+  self-derives the latest completed mock audit's issues, matching the
+  established `generate<X>(website)` dispatch signature. **Role gating is a
+  presentation-only usability layer, not a security boundary:**
+  `canGenerateRecommendations(role, supabaseMode)` +
+  `RECOMMENDATION_GENERATE_ROLES = ['owner','admin','team_member']` mirror
+  A16's `canGenerateCompetitorBenchmarks` exactly (mock mode always enabled;
+  Supabase mode queries the real role via the existing `getCurrentSeoRole`
+  helper) — the RPC's own owner/admin/team_member gate remains the sole
+  authoritative check regardless of what the UI shows, re-confirmed via a
+  direct backend-bypass attempt using a real client session's own bearer
+  token (denied with the RPC's own non-leaking message). The UI surface
+  chosen is the Technical Audit page (`WebsiteAuditPage.tsx`), rendered only
+  in Supabase mode on a completed audit — mock mode keeps its existing
+  auto-generation behavior unchanged, so no duplicate control was added
+  there. `ApprovalQueuePage.tsx` and its services were **not modified** —
+  by design, since `ensureApprovalQueueGenerated` was already idempotent and
+  already wired to consume whatever is in `seo_recommendations`. **A
+  further local-environment-only gap was discovered and fixed during this
+  stage's local verification** (distinct from Stage 1's three
+  local-Supabase-CLI findings): `authenticated`/`anon` had no base
+  SQL-level table GRANTs on the local stack — RLS policies were correctly
+  defined and enabled on every table, but PostgREST denies access before
+  RLS is ever evaluated without the underlying grant, which a real hosted
+  project (`Digi_SEO_Test`) provisions automatically. Fixed via the
+  standard Supabase default-privilege bootstrap SQL applied directly to the
+  local database only; RLS-enablement was re-confirmed unchanged on every
+  table afterward, so this only restored parity with the hosted environment
+  and did not weaken any authorization. (2026-07-24; frontend-implemented +
+  unit-tested (15 new tests, 48/48 total); **local-database-verified**
+  (genuine Docker-based local Supabase stack, not `Digi_SEO_Test`, not
+  production) — real fixtures proved persisted generation, no-reload UI
+  refresh, idempotent repeat generation with 0 duplicates, an
+  operator-approved recommendation surviving a later regeneration
+  untouched, and a denied-client + direct-bypass-attempt proof; **live
+  authenticated browser acceptance performed** for owner and client roles.
+  Correct current status: `IMPLEMENTED — LOCALLY VERIFIED — PENDING
+  ACCEPTANCE REVIEW`. Implemented in a temporary worktree/branch
+  (`feat/seo-recommendation-generate-stage2`, based on `origin/main`
+  `c1de7fe5400d88189d1b826d884ef31779ab2290`) — **not committed, not
+  pushed, no Stage 2 module lock added.** Stage 1's backend lock (A17) is
+  unchanged in scope. Full evidence:
+  `SEO_RECOMMENDATION_GENERATION_STAGE2_VERIFICATION.md`.
+
+  **AMENDMENT (2026-07-24, same day — acceptance-gap closure, follow-up
+  session, no implementation-code change).** The paragraph above is
+  retained unedited; this amendment closes the two evidence gaps it had
+  honestly flagged rather than fabricated:
+
+  - **Local privilege-bootstrap fix re-derived from a genuinely clean
+    reset.** The base-table-GRANT gap had originally been diagnosed against
+    a database already patched earlier in the same session. Re-run from
+    scratch this follow-up session: `supabase db reset` (deferred-SSO-safe
+    procedure, file restored byte-exact), then — before any fix — a raw
+    anon-key REST request against the fresh database returned `401`,
+    `code":"42501"`, `"permission denied for table seo_recommendations"`,
+    with PostgREST's own hint literally naming the missing `GRANT`; RLS was
+    independently re-confirmed enabled on all 53 public tables at that same
+    moment. `grep`-ing every migration file confirmed the repository never
+    establishes base table privileges anywhere (only per-RPC `EXECUTE`
+    grants and two narrow view-level `SELECT` grants exist).
+    **Classification: local-Supabase-CLI-only** — `db reset`'s
+    `DROP SCHEMA public CASCADE` destroys a one-time platform bootstrap
+    that a hosted project (`Digi_SEO_Test`) provisions automatically and
+    never loses, since its `public` schema is never dropped. **No change to
+    the locked Stage 1 migration or RPC was needed or made.** The fix is
+    now a committed-ready, idempotent, RLS-preserving script with its own
+    verification block
+    (`supabase/test/local_supabase_privilege_bootstrap.sql`), and the full
+    setup procedure — previously cited by this document and
+    `SEO_IMPLEMENTATION_STATUS.md` as existing in a file that, on direct
+    inspection this session, had never actually been committed to the
+    repository — is now genuinely documented end-to-end in a new
+    `SEO_LOCAL_DATABASE_SETUP.md`.
+  - **Loading-state and no-eligible-findings UI states proven live**,
+    not only code-reviewed as the prior amendment honestly disclosed.
+    Loading state: a manually-releasable gate was installed on
+    `window.fetch` in the live browser's in-memory JS runtime only (never
+    written to any file) to deterministically hold the
+    `seo_recommendation_generate` request open; clicking the control
+    produced `disabled=true`, `"Generating..."`, and exactly 1 RPC call,
+    and an attempted second click while still blocked produced **0**
+    additional RPC calls before the gate was released and the request
+    completed normally. No-eligible-findings state: a disposable second
+    website with a completed audit and 0 `seo_audit_issues` rows was
+    created, switched to as the active website, and generated live —
+    correctly producing exactly the 7 fixed on-page templates, 0
+    issue-derived rows, `status='suggested'` on all 7, and 0 automatically
+    created `seo_approval_items` rows (confirming generation alone never
+    triggers publishing), stable on a repeat click.
+  - **Regression re-confirmed clean** (`tsc`, 48/48 tests, production
+    build, secret scan, full diff review) with all temporary
+    instrumentation (the in-memory fetch gate, the reverted
+    `runtime-config.js`/`.claude/launch.json` overrides, the local-only
+    `supabase/config.toml`) confirmed removed; the local database was left
+    at 0 rows across every table via a final reset + bootstrap
+    re-application, with base grants and RLS both intact.
+  - **Status remains `IMPLEMENTED — LOCALLY VERIFIED — PENDING ACCEPTANCE
+    REVIEW`** — not advanced to accepted/locked, per this follow-up task's
+    explicit instruction. Not committed, not pushed, no module lock added.
+
+  **SECOND AMENDMENT (2026-07-24, same day — formal acceptance, commit,
+  and module lock).** The paragraphs above are retained unedited; this
+  amendment records the final outcome:
+
+  - **Formal acceptance review performed against the actual final source**
+    (every changed/new file read in full — service contract, role
+    behaviour, UI behaviour, state integrity, and local-setup criteria all
+    confirmed) plus a full re-run of `tsc`, the focused Stage 2 tests, the
+    full suite (48/48), the production build, a secret scan, and a
+    migration-directory integrity check — **all clean, no material defect
+    found.**
+  - **Recommendation Generation Stage 2 is formally ACCEPTED.**
+    Implementation, tests, local-setup support, and the Stage 2
+    verification record were committed as
+    `36d32af2a3841267d19a7911ad7e693e6e10f81d`
+    (`feat(seo): integrate recommendation generation workflow`) on
+    `feat/seo-recommendation-generate-stage2` (based on `origin/main`
+    `c1de7fe5400d88189d1b826d884ef31779ab2290`).
+  - **Recommendation Generation Stage 2 (frontend integration) is now
+    formally MODULE-LOCKED (2026-07-24)** — new
+    "Recommendation Generation — Stage 2 frontend integration" entry in
+    `docs/markdown/MODULE_LOCKS.md`, added in a second commit alongside
+    this document, `SEO_IMPLEMENTATION_STATUS.md`,
+    `SEO_CONTEXT_HANDOVER.md`, and
+    `docs/markdown/PROJECT_DOCUMENTATION_INDEX.md`. **The separate Stage 1
+    backend lock entry was not edited and remains exactly as it was.**
+  - **Corrected current status: `ACCEPTED — COMMITTED — PENDING
+    PUSH/MERGE`.** This branch is **committed locally only** — it has not
+    been pushed to `origin` and has not been merged to `main`. Push/merge
+    is a separate, explicitly-approved future step.)
+
 ## 2. Security & concurrency decisions (current)
 
 - **S1. Verified-ownership precondition for crawl enqueue (P1b).** Enforced
@@ -468,7 +613,11 @@ narrative rationale lives in the retained ADRs (`ADR_CRAWLER_RUNTIME_ARCHITECTUR
   Visibility); Crawler 16C–16H; P1a; P1b; **Reports v1 (persisted read + guarded
   generation + PDF export, Stages 1–3; LOCKED 2026-07-20)**; **Competitor
   Benchmarking (persisted read + guarded generation + frontend integration,
-  Stages 1–2; LOCKED 2026-07-24)** (all in `MODULE_LOCKS.md`).
+  Stages 1–2; LOCKED 2026-07-24)**; **Recommendation Generation — Stage 1
+  backend only (LOCKED 2026-07-24)**; **Recommendation Generation — Stage 2
+  frontend integration (LOCKED 2026-07-24; committed on
+  `feat/seo-recommendation-generate-stage2`, not yet pushed/merged; Stage 1's
+  own lock entry is separate and unedited)** (all in `MODULE_LOCKS.md`).
 - **L2.** Any change to a locked file/contract requires that lock's
   **additive-extension + evidence procedure** (reproduction or additive spec →
   expected/actual → evidence → additive-only design → **explicit approval** →
