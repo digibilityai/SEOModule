@@ -1,5 +1,11 @@
-import { describe, expect, it } from "vitest";
-import { mapRowToCompetitor, type SeoCompetitorRow } from "./seoCompetitorSupabaseService";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { supabase } from "@/integrations/supabase/client";
+import { SEO_RPCS } from "@/services/supabase/supabaseTypes";
+import {
+  generateSupabaseCompetitors,
+  mapRowToCompetitor,
+  type SeoCompetitorRow,
+} from "./seoCompetitorSupabaseService";
 
 // Competitor Benchmarking Stage 1 — adapter row-to-domain mapping + truthful
 // provenance. Pure function; no network.
@@ -76,5 +82,85 @@ describe("mapRowToCompetitor", () => {
     expect(c.ai_visibility_opportunities).toEqual([]);
     expect(c.generation_method).toBeUndefined();
     expect(c.user_id).toBe("");
+  });
+});
+
+// Competitor Benchmarking Stage 2A/2B — generation RPC wiring. Mocks only
+// `supabase.auth.getSession` / `.rpc` / `.from` (no network); proves the exact
+// call shape, response validation, and that a successful generation reads the
+// persisted canonical set back rather than trusting the RPC's own payload.
+type QueryChainResult = { data: unknown; error: unknown };
+
+function makeQueryChain(result: QueryChainResult) {
+  const chain: Record<string, unknown> = {};
+  chain.select = vi.fn(() => chain);
+  chain.eq = vi.fn(() => chain);
+  chain.order = vi.fn(() => chain);
+  chain.then = (resolve: (value: QueryChainResult) => unknown, reject?: (reason: unknown) => unknown) =>
+    Promise.resolve(result).then(resolve, reject);
+  return chain;
+}
+
+function mockAuthenticatedSession(userId = "user-1") {
+  vi.spyOn(supabase.auth, "getSession").mockResolvedValue({
+    data: { session: { user: { id: userId } } as never },
+    error: null,
+  } as never);
+}
+
+describe("generateSupabaseCompetitors", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("calls seo_competitor_generate with only the website id — no tenancy/actor/score/provenance metadata", async () => {
+    mockAuthenticatedSession();
+    const rpcSpy = vi.spyOn(supabase, "rpc").mockResolvedValue({ data: 2, error: null } as never);
+    vi.spyOn(supabase, "from").mockReturnValue(makeQueryChain({ data: [], error: null }) as never);
+
+    await generateSupabaseCompetitors(baseRow.website_id);
+
+    expect(rpcSpy).toHaveBeenCalledTimes(1);
+    expect(rpcSpy).toHaveBeenCalledWith(SEO_RPCS.competitorGenerate, { p_website_id: baseRow.website_id });
+    const [, sentArgs] = rpcSpy.mock.calls[0]!;
+    expect(Object.keys(sentArgs as object)).toEqual(["p_website_id"]);
+  });
+
+  it("throws the RPC's error and never falls back to mock data", async () => {
+    mockAuthenticatedSession();
+    vi.spyOn(supabase, "rpc").mockResolvedValue({
+      data: null,
+      error: { message: "Not authorized to generate competitor benchmarks for this website." },
+    } as never);
+    const fromSpy = vi.spyOn(supabase, "from");
+
+    await expect(generateSupabaseCompetitors(baseRow.website_id)).rejects.toThrow(
+      /Not authorized to generate competitor benchmarks/,
+    );
+    // no read-back / no other Supabase call attempted after the RPC error
+    expect(fromSpy).not.toHaveBeenCalled();
+  });
+
+  it("validates the RPC response is a numeric count before trusting it", async () => {
+    mockAuthenticatedSession();
+    vi.spyOn(supabase, "rpc").mockResolvedValue({ data: "not-a-number", error: null } as never);
+
+    await expect(generateSupabaseCompetitors(baseRow.website_id)).rejects.toThrow(/unexpected RPC response/);
+  });
+
+  it("re-reads the persisted canonical set after a successful generation (not the RPC's raw payload)", async () => {
+    mockAuthenticatedSession();
+    vi.spyOn(supabase, "rpc").mockResolvedValue({ data: 1, error: null } as never);
+    const fromSpy = vi
+      .spyOn(supabase, "from")
+      .mockReturnValue(makeQueryChain({ data: [baseRow], error: null }) as never);
+
+    const result = await generateSupabaseCompetitors(baseRow.website_id);
+
+    expect(fromSpy).toHaveBeenCalledWith("seo_competitors");
+    expect(result).toHaveLength(1);
+    expect(result[0]!.id).toBe(baseRow.id);
+    // truthful estimated provenance survives the post-generation read-back
+    expect(result[0]!.data_provenance).toBe("estimated");
   });
 });

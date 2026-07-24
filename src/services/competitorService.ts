@@ -7,6 +7,7 @@ import type {
   CompetitorOverview,
   GapLevel,
   RelatedModule,
+  SeoUserRole,
   SeoWebsite,
 } from "@/types";
 import { toAsync } from "@/lib/mockAsync";
@@ -16,6 +17,7 @@ import { runWithServiceAdapter } from "@/services/serviceAdapter";
 import {
   fetchSupabaseCompetitorDetail,
   fetchSupabaseCompetitors,
+  generateSupabaseCompetitors,
 } from "@/services/supabase/seoCompetitorSupabaseService";
 import {
   applyCompetitorStrengthStatus,
@@ -24,6 +26,28 @@ import {
   getCompetitorById,
   listCompetitors,
 } from "@/mocks/competitorMockData";
+
+// Competitor Benchmarking Stage 2A — roles permitted to trigger generation,
+// mirrors the seo_competitor_generate RPC's server-side owner/admin/
+// team_member gate. Presentation-only (the RPC remains the authoritative
+// check) — same convention as offpage/CampaignList.tsx's CAMPAIGN_SUBMIT_ROLES.
+export const COMPETITOR_GENERATE_ROLES: SeoUserRole[] = ["owner", "admin", "team_member"];
+
+/**
+ * Whether the current UI should offer the Generate/Refresh control. Mock mode
+ * has no real seo_workspace_members row, so generation stays enabled there
+ * (unchanged mock-mode behaviour, matches AuthorityBuilderPage's
+ * createRolePermitted pattern). In Supabase mode, only owner/admin/team_member
+ * see it enabled — client and any other role see it disabled. This is a
+ * usability layer only; the RPC re-enforces the same gate server-side.
+ */
+export function canGenerateCompetitorBenchmarks(
+  role: SeoUserRole | null,
+  supabaseMode: boolean,
+): boolean {
+  if (!supabaseMode) return true;
+  return role !== null && COMPETITOR_GENERATE_ROLES.includes(role);
+}
 
 // Competitor Benchmarking Stage 1 — real-data read path. In Supabase mode these
 // read persisted `seo_competitors` rows (RLS); in mock mode the local store.
@@ -270,7 +294,24 @@ export async function fetchCompetitorGaps(websiteId: string): Promise<Competitor
     });
 }
 
+// Generates (or refreshes) the competitor benchmark set for a website. In
+// Supabase mode this calls the guarded `seo_competitor_generate` RPC
+// (server-side authorization + deterministic heuristic scoring +
+// replace-to-match persistence; Competitor Stage 2A) and reloads the
+// persisted canonical rows — the heuristic is never reproduced client-side.
+// In mock mode it runs the existing local deterministic generation, unchanged.
+// No silent mock fallback in Supabase mode — a real generation error surfaces.
 export async function generateCompetitorBenchmarkData(website: SeoWebsite): Promise<Competitor[]> {
+  return runWithServiceAdapter({
+    label: "competitorService.generateCompetitorBenchmarkData",
+    mock: () => generateMockCompetitorBenchmarkData(website),
+    supabase: () => generateSupabaseCompetitors(website.id),
+    fallbackToMockOnError: false,
+  });
+}
+
+// Mock-mode generation: unchanged from before Stage 2A.
+async function generateMockCompetitorBenchmarkData(website: SeoWebsite): Promise<Competitor[]> {
   const onboarding = await fetchOnboardingByWebsiteId(website.id);
   const competitorUrls = onboarding?.competitors ?? [];
   if (competitorUrls.length === 0) return [];

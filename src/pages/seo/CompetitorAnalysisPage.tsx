@@ -5,7 +5,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { useResolvedActiveWebsite } from "@/hooks/useResolvedActiveWebsite";
 import { isSupabaseMode } from "@/config/runtimeConfig";
 import { fetchOnboardingByWebsiteId } from "@/services/businessOnboardingService";
+import { getCurrentSeoRole } from "@/services/supabase/seoWorkspaceService";
 import {
+  canGenerateCompetitorBenchmarks,
   fetchBenchmarkComparisons,
   fetchCompetitorGaps,
   fetchCompetitorOverview,
@@ -19,11 +21,11 @@ import { CompetitorGapSummary } from "./competitors/CompetitorGapSummary";
 import { BenchmarkComparisonSection } from "./competitors/BenchmarkComparisonSection";
 import { CompetitorCard } from "./competitors/CompetitorCard";
 
-// In real-data (Supabase) mode, competitors are read from stored records;
-// on-demand benchmark generation is a later stage, so Generate/Refresh is
-// disabled with an explanation. Mock mode keeps its existing local generation.
-const GENERATION_DEFERRED_REASON =
-  "Benchmark generation is coming in a later update. This shows your saved competitor data.";
+// Competitor Benchmarking Stage 2B — the role-gate denial reason shown when
+// signed in as a role the seo_competitor_generate RPC does not permit
+// (client, or no active membership). Matches the established wording used for
+// the Stage 6 role-gated controls (CampaignBuilder/CampaignList/OpportunityCard).
+const GENERATION_ROLE_DENIED_REASON = "Requires the owner, admin, or team member role.";
 
 export function CompetitorAnalysisPage() {
   const queryClient = useQueryClient();
@@ -36,6 +38,19 @@ export function CompetitorAnalysisPage() {
     enabled: !!activeWebsite,
   });
   const isOnboardingComplete = onboarding?.status === "completed";
+
+  // The signed-in user's REAL seo_workspace_members.seo_role for this
+  // website's workspace — the actual authorization source
+  // seo_competitor_generate checks server-side. Supabase mode only: mock mode
+  // has no seo_workspace_members rows, so role gating is skipped there
+  // entirely (see canGenerateCompetitorBenchmarks) and generation stays
+  // enabled, unchanged from the app's pre-existing mock behaviour.
+  const { data: currentSeoRole } = useQuery({
+    queryKey: ["seo-current-role", activeWebsite?.workspace_id],
+    queryFn: () => getCurrentSeoRole(activeWebsite!.workspace_id),
+    enabled: !!activeWebsite && supabaseMode,
+  });
+  const generatePermitted = canGenerateCompetitorBenchmarks(currentSeoRole ?? null, supabaseMode);
 
   const { data: competitors = [], isLoading: isLoadingCompetitors } = useQuery({
     queryKey: ["seo-competitors", activeWebsite?.id],
@@ -144,19 +159,23 @@ export function CompetitorAnalysisPage() {
         <CardHeader>
           <CardTitle>No benchmark data yet</CardTitle>
           <CardDescription>
-            {supabaseMode
-              ? `There isn't saved competitor benchmark data for ${activeWebsite.name} yet. ${GENERATION_DEFERRED_REASON}`
-              : `Generate benchmark data for the competitors you listed in onboarding to see how ${activeWebsite.name} compares.`}
+            Generate benchmark data for the competitors you listed in onboarding to see how{" "}
+            {activeWebsite.name} compares.
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-2">
           <Button
             onClick={() => generateMutation.mutate()}
-            disabled={generateMutation.isPending || supabaseMode}
-            title={supabaseMode ? GENERATION_DEFERRED_REASON : undefined}
+            disabled={generateMutation.isPending || !generatePermitted}
+            title={!generatePermitted ? GENERATION_ROLE_DENIED_REASON : undefined}
           >
             {generateMutation.isPending ? "Generating..." : "Generate benchmark data"}
           </Button>
+          {generateMutation.isError && (
+            <p className="text-sm text-destructive">
+              Couldn't generate benchmark data just now. Please try again.
+            </p>
+          )}
         </CardContent>
       </Card>
     );
@@ -170,9 +189,12 @@ export function CompetitorAnalysisPage() {
           overview={overview}
           onRefresh={() => generateMutation.mutate()}
           isRefreshing={generateMutation.isPending}
-          refreshDisabled={supabaseMode}
-          refreshDisabledReason={GENERATION_DEFERRED_REASON}
+          refreshDisabled={!generatePermitted}
+          refreshDisabledReason={GENERATION_ROLE_DENIED_REASON}
         />
+      )}
+      {generateMutation.isError && (
+        <p className="text-sm text-destructive">Couldn't refresh benchmark data just now. Please try again.</p>
       )}
       <SafetyNotice text={COMPETITOR_SAFETY_NOTICE} />
 

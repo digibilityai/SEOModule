@@ -159,6 +159,43 @@ narrative rationale lives in the retained ADRs (`ADR_CRAWLER_RUNTIME_ARCHITECTUR
   `COMPETITOR_STAGE2A_CONCURRENCY_VERIFICATION.md`; **Stage 2B frontend integration +
   operator browser acceptance PENDING; Competitor module NOT locked**; not
   committed/pushed.)
+- **A16. Competitor generation frontend integration = same adapter + role-gate
+  pattern as Reports Stage 2 / Stage 6** (Competitor Stage 2B, frontend-only,
+  no migration). `seoCompetitorSupabaseService.generateSupabaseCompetitors`
+  calls the Stage 2A RPC with only `p_website_id`, validates the response is a
+  numeric count, then re-reads the persisted rows through the Stage 1 read path
+  — mirroring `generateSupabaseReport`'s "RPC then re-read the canonical row"
+  shape (A10) so the heuristic scoring is never duplicated in the frontend.
+  `competitorService.generateCompetitorBenchmarkData` dispatches through
+  `runWithServiceAdapter` with `fallbackToMockOnError: false` (A2/A13 — no
+  silent mock fallback on a real Supabase error); the pre-existing mock
+  generation is preserved verbatim as a separately named function. **Role
+  gating is a presentation-only usability layer, not a security boundary:**
+  `canGenerateCompetitorBenchmarks(role, supabaseMode)` +
+  `COMPETITOR_GENERATE_ROLES = ['owner','admin','team_member']` mirror
+  `AuthorityBuilderPage`'s `CAMPAIGN_SUBMIT_ROLES` pattern exactly (mock mode
+  always enabled since there is no real `seo_workspace_members` row there;
+  Supabase mode queries the real role via the existing `getCurrentSeoRole`
+  helper) — the `seo_competitor_generate` RPC's own owner/admin/team_member
+  gate remains the sole authoritative check regardless of what the UI shows.
+  Denied roles see the established "Requires the owner, admin, or team member
+  role." tooltip (same wording as the Stage 6 role-gated controls). (2026-07-24;
+  frontend-implemented + unit-tested; **authenticated owner/admin/team_member/
+  client role-matrix operator acceptance against `Digi_SEO_Test` ALL PASS
+  (2026-07-24, real TEST accounts, real browser sessions)** — owner/admin/
+  team_member each generated successfully (network-observed `POST
+  rpc/seo_competitor_generate → 200` + canonical `GET seo_competitors`
+  reload; 3 distinct competitors, no duplicates across repeated refresh;
+  DB-confirmed `data_provenance='estimated'` + `generation_method='heuristic_v1'`);
+  client denied in the UI (disabled control + accurate tooltip) and at the
+  backend (a direct in-session RPC attempt returned `P0001`
+  "Not authorized to generate competitor benchmarks for this website.", no
+  credential exposed); a reversible client-side-only simulated backend failure
+  showed an actionable error with no mock fallback and left persisted data
+  intact; responsive (desktop/mobile) + an unrelated page regressed cleanly;
+  no defects found. **Stage 2B is ready for commit; Competitor module remains
+  NOT locked** (a lock is a separate, explicitly-approved decision); not yet
+  committed/pushed.)
 
 ## 2. Security & concurrency decisions (current)
 

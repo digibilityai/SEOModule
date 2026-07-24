@@ -190,6 +190,16 @@ export const SEO_RPCS = {
   // already-persisted canonical seo_reports row for client-side PDF rendering;
   // never regenerates.
   reportExportData: "seo_report_export_data",
+
+  // Competitor Benchmarking Stage 2A — guarded generation (migration
+  // 20260724120040). SECURITY DEFINER, EXECUTE = authenticated only (anon
+  // revoked up-front); owner/admin/team_member gated in-function (client/
+  // anon/nonmember/cross-tenant denied). Accepts only p_website_id — the
+  // competitor URL list and comparison score are server-derived. Runs a
+  // deterministic local heuristic (data_provenance='estimated' only) and
+  // persists via replace-to-match under a transaction-scoped advisory lock.
+  // Returns the integer size of the canonical set.
+  competitorGenerate: "seo_competitor_generate",
 } as const;
 
 export type SeoRpcName = (typeof SEO_RPCS)[keyof typeof SEO_RPCS];

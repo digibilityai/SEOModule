@@ -1,6 +1,7 @@
 import type { Competitor, CompetitorStrengthStatus } from "@/types";
 import { supabase } from "@/integrations/supabase/client";
-import { SEO_TABLES } from "@/services/supabase/supabaseTypes";
+import { SEO_RPCS, SEO_TABLES } from "@/services/supabase/supabaseTypes";
+import { normalizeSupabaseError } from "@/services/supabase/supabaseErrors";
 import { requireAuthenticatedUser, requireValidUuid, safeList, safeSingle } from "@/services/supabase/supabaseServiceUtils";
 
 // =============================================================================
@@ -109,4 +110,31 @@ export async function fetchSupabaseCompetitorDetail(id: string): Promise<Competi
     supabase.from(SEO_TABLES.competitors).select(COMPETITOR_COLUMNS).eq("id", id).maybeSingle(),
   );
   return row ? mapRowToCompetitor(row) : null;
+}
+
+/**
+ * Competitor Benchmarking Stage 2A — guarded generation. Calls the SECURITY
+ * DEFINER `seo_competitor_generate` RPC (server-side authorization + the
+ * repo's deterministic heuristic scoring + replace-to-match upsert), then
+ * reads the persisted canonical set back through the Stage 1 read path — the
+ * heuristic itself is never reproduced in the frontend. Sends only the
+ * website id; the RPC accepts no workspace, actor, scores, provenance,
+ * timestamps, or role data from the client.
+ */
+export async function generateSupabaseCompetitors(websiteId: string): Promise<Competitor[]> {
+  const label = "seoCompetitorSupabaseService.generateSupabaseCompetitors";
+  await requireAuthenticatedUser(label);
+  requireValidUuid(label, websiteId, "websiteId");
+
+  const { data, error } = await supabase.rpc(SEO_RPCS.competitorGenerate, {
+    p_website_id: websiteId,
+  });
+  if (error) {
+    throw new Error(`${label}: ${normalizeSupabaseError(error).message}`);
+  }
+  if (typeof data !== "number" || !Number.isFinite(data)) {
+    throw new Error(`${label}: unexpected RPC response (expected a numeric count, got ${JSON.stringify(data)}).`);
+  }
+
+  return fetchSupabaseCompetitors(websiteId);
 }

@@ -139,9 +139,36 @@ discipline for every task.
   `pg_sleep(8)`; after A committed, B unblocked; post-race state = exactly one
   canonical row per competitor (no duplicates), replace-to-match re-confirmed, 0
   fixture residue. Full evidence: `COMPETITOR_STAGE2A_CONCURRENCY_VERIFICATION.md`.
-  **Stage 2B (frontend integration) + operator browser
-  acceptance remain PENDING; Competitor module still NOT locked.** Details:
-  `SEO_IMPLEMENTATION_STATUS.md` §1 (Competitor Stage 2A row) + §8; `SEO_DECISIONS.md` A15.
+- **Latest activity (2026-07-24, same day):** **Competitor Benchmarking Stage 2B
+  — frontend generation integration** now **FRONTEND-IMPLEMENTED + UNIT-TESTED +
+  AUTHENTICATED OPERATOR-ACCEPTED** (branch `feat/seo-competitor-generate-stage2a`;
+  **not committed/pushed**). New `generateSupabaseCompetitors` calls the Stage 2A
+  RPC (only the website id) then re-reads the canonical set through the Stage 1
+  read path — no heuristic logic duplicated client-side.
+  `competitorService.generateCompetitorBenchmarkData` dispatches via
+  `runWithServiceAdapter` (`fallbackToMockOnError:false`); mock mode unchanged
+  (verbatim-extracted). Generate/Refresh role-gated in Supabase mode
+  (owner/admin/team_member enabled; client/non-member disabled with the
+  established "Requires the owner, admin, or team member role." tooltip) via
+  the real `seo_workspace_members.seo_role` (`getCurrentSeoRole`) — a usability
+  layer only; the RPC remains authoritative. 16 new unit tests (33/33 total);
+  tsc/build clean. **Authenticated operator acceptance ALL PASS (real TEST
+  accounts + real browser sessions on `Digi_SEO_Test`):** owner/admin/
+  team_member each successfully generated/refreshed via the real
+  `seo_competitor_generate` RPC (network-observed `POST … → 200` + canonical
+  `GET seo_competitors` reload; 3 distinct competitors, no duplicates across
+  repeated refresh; DB-confirmed `data_provenance='estimated'` +
+  `generation_method='heuristic_v1'`); client correctly denied in the UI
+  (disabled control + tooltip) and at the backend (direct RPC attempt →
+  `P0001` "Not authorized…", 0 tokens exposed); a simulated backend failure
+  (reversible client-side fetch intercept, no DB/authorization change) showed
+  an actionable error with **no mock fallback** and left the persisted data
+  intact; desktop + mobile layouts and an unrelated page (`/seo/dashboard`)
+  regressed cleanly. **No defects found.** `runtime-config.js` restored
+  byte-for-byte (hash-verified, 0 residue). **Stage 2B is ready for commit.**
+  **Competitor module remains NOT locked** — a lock requires separate explicit
+  approval/review of this evidence. Details: `SEO_IMPLEMENTATION_STATUS.md`
+  §1 (Competitor Stage 2B row) + §8; `SEO_DECISIONS.md` A16.
 
 ## 5. Current development stage
 
@@ -187,15 +214,25 @@ deployed. Hard invariant until a separately-approved promotion task passes the
 
 Two candidate tracks — **operator selects one**:
 
-1. **Competitor Benchmarking Stage 2B (frontend generation integration)** — the
-   immediate next *feature* increment. **Stage 2A (backend generation RPC) is
-   DONE — TEST-verified 2026-07-24** (migration `20260724120040`; see §4 latest
-   activity + `SEO_IMPLEMENTATION_STATUS.md` §1/§8). Stage 2B: wire the Supabase
-   generate path through `runWithServiceAdapter` (call `seo_competitor_generate`,
-   no silent mock fallback), re-enable Generate/Refresh in Supabase mode for
-   owner/admin/team_member only, then run authenticated operator browser
-   acceptance. The Stage 2A backend branch `feat/seo-competitor-generate-stage2a`
-   is not yet committed/pushed. SSO `20260720121000` stays deferred.
+1. **Competitor Benchmarking Stage 2B — commit review.** **Stage 2A (backend
+   RPC) is DONE — TEST-applied + concurrency-verified 2026-07-24; Stage 2B
+   (frontend integration) is now FRONTEND-IMPLEMENTED + UNIT-TESTED +
+   AUTHENTICATED OPERATOR-ACCEPTED 2026-07-24** (see §4 latest activity +
+   `SEO_IMPLEMENTATION_STATUS.md` §1/§8): Supabase generate path wired through
+   `runWithServiceAdapter` (no silent fallback), role-gated Generate/Refresh
+   (owner/admin/team_member; client/non-member disabled), mock mode unchanged,
+   33/33 vitest, tsc/build clean. **Authenticated role-matrix acceptance ALL
+   PASS** on `Digi_SEO_Test` with real TEST accounts: owner/admin/team_member
+   generation + repeated-refresh stability + no duplicates + truthful
+   `estimated` provenance all confirmed via real network calls and read-only DB
+   inspection; client denied both in the UI and at the backend (`P0001`);
+   error path shows an actionable message with no mock fallback; responsive +
+   unrelated-page regression checks clean; no defects found. **Stage 2B is
+   ready for commit** — the branch `feat/seo-competitor-generate-stage2a` has
+   not yet been committed/pushed for this work; commit is a separate,
+   explicitly-approved next action. SSO `20260720121000` stays deferred;
+   **Competitor module stays NOT locked** — a lock requires separate explicit
+   approval/review of this evidence.
 2. **Production-promotion planning / preflight** for the crawler + P1a + P1b stack
    — a **planning-only** document (no DB action, no deploy) gating: production
    migration order + rollback for P1a/16C–16H/P1b/Reports v1; worker deployment
