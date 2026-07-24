@@ -40,13 +40,17 @@ discipline for every task.
 
 ## 3. Current branch / HEAD / working-tree state
 
-- **Branch:** `main`. **HEAD:** `e00caa21f837b892777117538bb6a3dd9343d1de`
-  (`feat(seo): add competitor benchmarking read path`).
+- **Branch:** `main`. **HEAD:** `a594d1dbd0f67f71b218132b848ce9678c3cad17`
+  (`feat(seo): integrate competitor benchmark generation`).
 - **Working tree is CLEAN; local `main` = `origin/main` (pushed).** The project
-  is now committed history — recent commits: `e00caa2` (Competitor Stage 1),
-  `b976340` (Reports v1 complete + locked), `420f9ca` (cloudbuild), `e1a918a`
-  (SSO), `2b9537b` (SEO Intelligence module import). Use normal Git hygiene:
-  branch before non-trivial work; commit/push only when a task instructs it.
+  is now committed history — recent commits: `a594d1d` (Competitor Stage 2B
+  frontend integration), `2d5ff89` (Competitor Stage 2A backend), `e00caa2`
+  (Competitor Stage 1), `b976340` (Reports v1 complete + locked), `420f9ca`
+  (cloudbuild), `e1a918a` (SSO), `2b9537b` (SEO Intelligence module import).
+  `a594d1d` and `2d5ff89` were fast-forwarded onto `main` from
+  `feat/seo-competitor-generate-stage2a` (2026-07-24; that feature branch
+  still exists on `origin`, not deleted). Use normal Git hygiene: branch
+  before non-trivial work; commit/push only when a task instructs it.
 - **Cross-project SSO is intentionally DEFERRED:** migration `20260720121000`
   (`seo_cross_project_identity_bridge`) is present in the repo but **pending /
   unapplied on `Digi_SEO_Test`** and must not be applied without a separate,
@@ -165,31 +169,41 @@ discipline for every task.
   an actionable error with **no mock fallback** and left the persisted data
   intact; desktop + mobile layouts and an unrelated page (`/seo/dashboard`)
   regressed cleanly. **No defects found.** `runtime-config.js` restored
-  byte-for-byte (hash-verified, 0 residue). **Stage 2B is ready for commit.**
-  **Competitor module remains NOT locked** — a lock requires separate explicit
-  approval/review of this evidence. Details: `SEO_IMPLEMENTATION_STATUS.md`
+  byte-for-byte (hash-verified, 0 residue). Details: `SEO_IMPLEMENTATION_STATUS.md`
   §1 (Competitor Stage 2B row) + §8; `SEO_DECISIONS.md` A16.
+- **Latest activity (2026-07-24, same day):** **Competitor Benchmarking commit,
+  merge, and formal module lock.** Stage 2A committed (`2d5ff89` `feat(seo): add
+  guarded competitor benchmark generation`) and Stage 2B committed (`a594d1d`
+  `feat(seo): integrate competitor benchmark generation`) on
+  `feat/seo-competitor-generate-stage2a`, pushed to `origin`, then
+  fast-forwarded onto `main` (`git merge --ff-only`, no merge commit) and
+  pushed as `origin/main`. Post-merge verification (fresh worktree, `npm ci`):
+  vitest 33/33, `tsc` clean, `npm run build` clean. **Competitor Benchmarking
+  (Stages 1–2) is now formally MODULE-LOCKED (2026-07-24)** — see the new
+  Competitor Benchmarking entry in `docs/markdown/MODULE_LOCKS.md` for the full
+  locked scope, protected contracts, locked files, and the unlock/
+  additive-extension procedure. Details: `SEO_IMPLEMENTATION_STATUS.md` §1/§7/§8;
+  `SEO_DECISIONS.md` A13/A15/A16.
 
 ## 5. Current development stage
 
 Backend crawler + ownership + enqueue-enforcement stack is **complete, locked,
 and TEST-verified**. **Reports v1 (Stages 1–3) is COMPLETE and LOCKED**
-(committed/pushed, `b976340`). **Competitor Benchmarking Stage 1 (persisted read
-path) is COMPLETE, committed, and pushed** (`e00caa2`); **Stage 2A (guarded
-generation RPC) is BACKEND-IMPLEMENTED + TEST-VERIFIED (2026-07-24, not
-committed/pushed); Stage 2B (frontend integration) + operator acceptance remain
-PENDING.** Frontend product surfaces (Help Center, navigation) are
-development-complete. Two candidate next tracks (Competitor Stage 2B frontend
-integration vs production-promotion planning) await operator selection — see §9.
+(committed/pushed, `b976340`). **Competitor Benchmarking (Stages 1–2 — persisted
+read path + guarded generation + frontend integration) is COMPLETE and LOCKED**
+(2026-07-24; commits `2d5ff89`/`a594d1d`, fast-forwarded to `main`, pushed).
+Frontend product surfaces (Help Center, navigation) are development-complete.
+No feature implementation is in flight; the one remaining candidate next track
+is production-promotion planning — see §9.
 
 ## 6. Locked modules
 
 Page Performance Tracker · Stage 6 (Off-Page Authority + AI Visibility) · Crawler
 16C–16H · P1a Domain Ownership Verification · P1b Verified-only Crawl Enqueue
 Enforcement · **Reports v1 (persisted read + guarded generation + PDF export,
-Stages 1–3; LOCKED 2026-07-20).** (Details + unlock procedure: `MODULE_LOCKS.md`.)
-Competitor Benchmarking Stage 1 is **complete but NOT locked** (module incomplete;
-Stage 2 pending).
+Stages 1–3; LOCKED 2026-07-20)** · **Competitor Benchmarking (persisted read +
+guarded generation + frontend integration, Stages 1–2; LOCKED 2026-07-24).**
+(Details + unlock procedure: `MODULE_LOCKS.md`.)
 
 ## 7. Production status
 
@@ -212,28 +226,15 @@ deployed. Hard invariant until a separately-approved promotion task passes the
 
 ## 9. Exact next step
 
-Two candidate tracks — **operator selects one**:
+**Competitor Benchmarking (Stages 1–2) is DONE and MODULE-LOCKED (2026-07-24)**
+— not a pending item. Commits `2d5ff89` (Stage 2A backend) and `a594d1d`
+(Stage 2B frontend integration) are fast-forwarded onto `main` and pushed;
+formal lock entry added to `docs/markdown/MODULE_LOCKS.md`. See §4 latest
+activity + `SEO_IMPLEMENTATION_STATUS.md` §1/§7/§8 for full evidence.
 
-1. **Competitor Benchmarking Stage 2B — commit review.** **Stage 2A (backend
-   RPC) is DONE — TEST-applied + concurrency-verified 2026-07-24; Stage 2B
-   (frontend integration) is now FRONTEND-IMPLEMENTED + UNIT-TESTED +
-   AUTHENTICATED OPERATOR-ACCEPTED 2026-07-24** (see §4 latest activity +
-   `SEO_IMPLEMENTATION_STATUS.md` §1/§8): Supabase generate path wired through
-   `runWithServiceAdapter` (no silent fallback), role-gated Generate/Refresh
-   (owner/admin/team_member; client/non-member disabled), mock mode unchanged,
-   33/33 vitest, tsc/build clean. **Authenticated role-matrix acceptance ALL
-   PASS** on `Digi_SEO_Test` with real TEST accounts: owner/admin/team_member
-   generation + repeated-refresh stability + no duplicates + truthful
-   `estimated` provenance all confirmed via real network calls and read-only DB
-   inspection; client denied both in the UI and at the backend (`P0001`);
-   error path shows an actionable message with no mock fallback; responsive +
-   unrelated-page regression checks clean; no defects found. **Stage 2B is
-   ready for commit** — the branch `feat/seo-competitor-generate-stage2a` has
-   not yet been committed/pushed for this work; commit is a separate,
-   explicitly-approved next action. SSO `20260720121000` stays deferred;
-   **Competitor module stays NOT locked** — a lock requires separate explicit
-   approval/review of this evidence.
-2. **Production-promotion planning / preflight** for the crawler + P1a + P1b stack
+The one remaining candidate track:
+
+1. **Production-promotion planning / preflight** for the crawler + P1a + P1b stack
    — a **planning-only** document (no DB action, no deploy) gating: production
    migration order + rollback for P1a/16C–16H/P1b/Reports v1; worker deployment
    runtime + secrets/service-role handling; Cloud Run deploy + the deferred

@@ -709,6 +709,132 @@ source areas (competitor / roadmap / expert-support).
 
 ---
 
+## Competitor Benchmarking — Persisted read + guarded generation (Stages 1–2)
+
+**Status:** LOCKED (Competitor Benchmarking approved scope; deferred features remain UNLOCKED)
+**Locked on:** 2026-07-24
+**Owner documentation:** `SEO_IMPLEMENTATION_STATUS.md` (§1 Competitor rows),
+`SEO_DECISIONS.md` A13/A15/A16, `SEO_CONTEXT_HANDOVER.md` §4,
+`COMPETITOR_STAGE2A_CONCURRENCY_VERIFICATION.md`
+
+**Merged `main` checkpoint:** `a594d1dbd0f67f71b218132b848ce9678c3cad17`, comprising
+implementation commits `2d5ff8966842ea14e2176eee1f060cfc92cbf102` (Stage 2A
+backend) and `a594d1dbd0f67f71b218132b848ce9678c3cad17` (Stage 2B frontend
+integration), fast-forwarded onto `main` from `feat/seo-competitor-generate-stage2a`.
+
+**Important:** this lock protects the validated behaviour/contracts of the
+Competitor Benchmarking scope (Stage 1 persisted read path; Stage 2A guarded
+generation RPC; Stage 2B frontend integration), TEST-verified on `Digi_SEO_Test`
+and authenticated-operator-accepted. It does **not** claim a real external
+competitor-data provider (SEMrush/Ahrefs/GSC) is integrated — every score is a
+local heuristic **estimate**; see "Protected contracts". Roadmap and expert-support
+integration for this area, and any real-provider integration, remain deferred
+and UNLOCKED (see "Deferred scope"); their absence is not a defect.
+
+### Locked scope (implemented + TEST-verified + operator-accepted)
+1. **Stage 1 — persisted read path.** `public.seo_competitors` (migration
+   `20260720123000`; workspace/website-scoped RLS — member SELECT incl. client
+   read-only, owner/admin/team_member write; `UNIQUE(website_id,
+   normalized_competitor_url)`; `data_provenance` CHECK-constrained to
+   `'estimated'` only). Frontend reads via `runWithServiceAdapter`, **no silent
+   mock fallback** in Supabase mode; mock mode preserved.
+2. **Stage 2A — guarded generation.** `SECURITY DEFINER`
+   `seo_competitor_generate(p_website_id uuid) RETURNS integer` — `search_path
+   =public`; `authenticated`-only (anon EXECUTE revoked up-front, no corrective
+   follow-up needed); owner/admin/team_member or global admin (client/anon/
+   non-member/cross-tenant denied with one non-leaking message; a missing
+   website is indistinguishable from unauthorized). Accepts **only**
+   `p_website_id` — workspace/actor/website-url, the competitor URL list
+   (`seo_business_onboarding.competitors`), and the comparison score (latest
+   completed `seo_audit_runs`) are all server-derived. Deterministic local
+   heuristic (`35 + hash(url:dimension) % 55`, no random regenerate nudge —
+   repeated generation is stable/idempotent); persists only
+   `data_provenance='estimated'` + `generation_method='heuristic_v1'`
+   (**never** SEMrush/Ahrefs/GSC/measured/observed/verified/live). Normalizes
+   competitor URLs to the Stage 1 host contract; transaction-scoped
+   `pg_advisory_xact_lock` keyed to (website, generation op); **replace-to-match**
+   persistence (`INSERT … ON CONFLICT DO UPDATE` for the canonical set + `DELETE`
+   of stale rows for that website only — other websites/workspaces untouched;
+   an empty onboarding list is non-destructive and returns `0`).
+3. **Stage 2B — frontend integration.** `generateSupabaseCompetitors(websiteId)`
+   calls the Stage 2A RPC (only the website id) then re-reads the persisted
+   canonical set through the Stage 1 read path — the heuristic is never
+   reproduced client-side. `competitorService.generateCompetitorBenchmarkData`
+   dispatches via `runWithServiceAdapter` (`fallbackToMockOnError: false`); the
+   pre-existing mock generation is preserved verbatim, unchanged. Role-gated
+   Generate/Refresh (`canGenerateCompetitorBenchmarks` +
+   `COMPETITOR_GENERATE_ROLES = ['owner','admin','team_member']`) is a
+   **presentation-only usability layer** — the RPC's own role gate remains the
+   sole authoritative check.
+
+### Protected contracts
+- RPC name/params/returns/grants: `seo_competitor_generate(uuid) RETURNS integer`
+  (`authenticated`-only, anon denied up-front); the `seo_competitors` table
+  shape + unique key + RLS + the `data_provenance='estimated'`-only CHECK; the
+  advisory-lock + replace-to-match persistence semantics; the deterministic
+  heuristic formula and its stability (no random nudge); the role-gate wiring
+  as a usability layer only (never the authoritative check). No client-supplied
+  workspace, actor, scores, provenance, timestamps, or generation metadata.
+- Applied migrations `20260720123000`, `20260724120040` are **immutable**.
+
+### Locked files
+- Migrations `supabase/migrations/20260720123000_seo_competitors.sql`,
+  `…20260724120040_seo_competitor_generate.sql` (immutable).
+- `supabase/test/seo_competitors_read_path_verification.sql`,
+  `seo_competitor_generate_verification.sql` (+ rollbacks) — baselines; must
+  remain PASS + self-cleaning.
+- `COMPETITOR_STAGE2A_CONCURRENCY_VERIFICATION.md` — live two-session
+  concurrency evidence baseline.
+- `src/services/supabase/seoCompetitorSupabaseService.ts`,
+  `src/services/competitorService.ts`, `src/services/supabase/supabaseTypes.ts`
+  (competitor RPC/table names), `src/types/competitor.ts`,
+  `src/pages/seo/CompetitorAnalysisPage.tsx`, and
+  `src/pages/seo/competitors/{CompetitorOverviewHeader,CompetitorCard,CompetitorGapSummary,BenchmarkComparisonSection}.tsx`.
+
+### Verification evidence (2026-07-24)
+Stage 1 + Stage 2A SQL verification (both scripts) ALL PASS, 0 residue; **true
+two-session held-transaction advisory-lock concurrency PASS** (`Digi_SEO_Test`:
+Session B directly observed `wait_event_type=Lock, wait_event=advisory` while
+Session A held the lock via `pg_sleep(8)`; B unblocked cleanly on A's commit;
+exactly one canonical row per competitor, no duplicates; replace-to-match
+re-verified post-race; 0 fixture residue — full detail in
+`COMPETITOR_STAGE2A_CONCURRENCY_VERIFICATION.md`); vitest 33/33; `tsc`/`build`
+clean. **Authenticated operator acceptance ALL PASS** on `Digi_SEO_Test` (real
+TEST accounts, real browser sessions): owner/admin/team_member each generated
+successfully (network-observed RPC call + canonical reload, repeated-refresh
+stability, no duplicates, `data_provenance='estimated'` + `generation_method=
+'heuristic_v1'` DB-confirmed); client denied in the UI (disabled control +
+accurate role tooltip) and at the backend (direct RPC attempt → `P0001`
+non-leaking denial); a reversible client-side-only simulated backend failure
+showed an actionable error with no mock fallback and left persisted data
+intact; desktop/mobile responsive and an unrelated-page regression check both
+clean. No defects found. Production untouched throughout; the deferred
+cross-project SSO migration `20260720121000` remained pending/unapplied
+(`SEO_DECISIONS.md` A14) — unaffected by this work.
+
+### Changes allowed / not allowed / evidence required
+Same additive-extension + evidence + explicit-approval procedure as the Reports
+v1 entry. **Allowed** (separately approved, additive): proven bug fixes;
+security fixes; additive extension points for the deferred features below —
+additive migrations only, preserve every protected contract, re-run the Stage
+1/2A SQL verifications (+ the two-session concurrency if the advisory lock is
+touched) and the frontend unit tests, dated owner-doc note. **Not allowed**
+(without unlock/approval): weaken the role gates or the anon-deny grant;
+remove/weaken the advisory lock or the unique key; add a second
+`seo_competitors` write path bypassing the guard; relabel a persisted row away
+from `data_provenance='estimated'`; trust client-supplied generation content;
+edit applied migrations `20260720123000`/`20260724120040`; refactor-for-style
+on locked behaviour.
+
+### Deferred scope — remains UNLOCKED (out of scope; not defects)
+Real external competitor-data provider integration (SEMrush/Ahrefs/GSC or
+similar — any future integration must add a new allowed `data_provenance`
+value via an additive migration, never relabel estimated data); scheduled/
+automatic regeneration; competitor-count/plan-tier limits; CSV/export of
+competitor data; historical trend tracking across generations.
+
+---
+
 ## Other modules marked locked in `PROJECT_BOOTSTRAP.md`
 
 `PROJECT_BOOTSTRAP.md`'s Module Map currently lists the following as locked

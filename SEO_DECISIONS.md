@@ -109,8 +109,8 @@ narrative rationale lives in the retained ADRs (`ADR_CRAWLER_RUNTIME_ARCHITECTUR
   estimated benchmarking" (2026-07-22) so the notice stays truthful in Supabase
   mode. (2026-07-20; TEST-verified; authenticated Supabase-mode read-path
   OPERATOR-VERIFIED PASS 2026-07-22; **committed + pushed 2026-07-24, HEAD
-  `e00caa2`**; NOT locked — generation = Stage 2, **designed (design recovery
-  complete) but NOT started**.)
+  `e00caa2`**; part of **Competitor Benchmarking** (Stages 1–2) —
+  **LOCKED 2026-07-24**.)
 - **A14. Cross-project SSO identity bridge intentionally DEFERRED / unapplied.**
   Migration `20260720121000` (`seo_cross_project_identity_bridge`) was pulled into
   the repo with the SSO commit (`e1a918a`) but is **pending / unapplied on
@@ -156,9 +156,9 @@ narrative rationale lives in the retained ADRs (`ADR_CRAWLER_RUNTIME_ARCHITECTUR
   observed Session B blocked (`wait_event=advisory`) while Session A held the lock
   via `pg_sleep(8)`, then unblocked cleanly on commit with exactly one canonical
   row per competitor and 0 residue; see
-  `COMPETITOR_STAGE2A_CONCURRENCY_VERIFICATION.md`; **Stage 2B frontend integration +
-  operator browser acceptance PENDING; Competitor module NOT locked**; not
-  committed/pushed.)
+  `COMPETITOR_STAGE2A_CONCURRENCY_VERIFICATION.md`; part of **Competitor
+  Benchmarking** (Stages 1–2) — **LOCKED 2026-07-24**; committed as `2d5ff89`,
+  fast-forwarded to `main`, pushed.)
 - **A16. Competitor generation frontend integration = same adapter + role-gate
   pattern as Reports Stage 2 / Stage 6** (Competitor Stage 2B, frontend-only,
   no migration). `seoCompetitorSupabaseService.generateSupabaseCompetitors`
@@ -193,9 +193,9 @@ narrative rationale lives in the retained ADRs (`ADR_CRAWLER_RUNTIME_ARCHITECTUR
   credential exposed); a reversible client-side-only simulated backend failure
   showed an actionable error with no mock fallback and left persisted data
   intact; responsive (desktop/mobile) + an unrelated page regressed cleanly;
-  no defects found. **Stage 2B is ready for commit; Competitor module remains
-  NOT locked** (a lock is a separate, explicitly-approved decision); not yet
-  committed/pushed.)
+  no defects found. Committed as `a594d1d`, fast-forwarded to `main`, pushed;
+  part of **Competitor Benchmarking** (Stages 1–2) — **LOCKED 2026-07-24**
+  (formal entry: `docs/markdown/MODULE_LOCKS.md`).)
 
 ## 2. Security & concurrency decisions (current)
 
@@ -249,9 +249,9 @@ narrative rationale lives in the retained ADRs (`ADR_CRAWLER_RUNTIME_ARCHITECTUR
 
 - **L1.** Locked modules: Page Performance Tracker; Stage 6 (Off-Page + AI
   Visibility); Crawler 16C–16H; P1a; P1b; **Reports v1 (persisted read + guarded
-  generation + PDF export, Stages 1–3; LOCKED 2026-07-20)** (all in
-  `MODULE_LOCKS.md`). Competitor Benchmarking Stage 1 is complete but **NOT
-  locked** (module incomplete; Stage 2 pending).
+  generation + PDF export, Stages 1–3; LOCKED 2026-07-20)**; **Competitor
+  Benchmarking (persisted read + guarded generation + frontend integration,
+  Stages 1–2; LOCKED 2026-07-24)** (all in `MODULE_LOCKS.md`).
 - **L2.** Any change to a locked file/contract requires that lock's
   **additive-extension + evidence procedure** (reproduction or additive spec →
   expected/actual → evidence → additive-only design → **explicit approval** →
