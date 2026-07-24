@@ -8,8 +8,14 @@ import type {
   SeoRecommendation,
 } from "@/types";
 import { supabase } from "@/integrations/supabase/client";
-import { SEO_TABLES } from "@/services/supabase/supabaseTypes";
-import { requireAuthenticatedUser, safeList, safeSingle } from "@/services/supabase/supabaseServiceUtils";
+import { SEO_RPCS, SEO_TABLES } from "@/services/supabase/supabaseTypes";
+import {
+  requireAuthenticatedUser,
+  requireValidUuid,
+  safeList,
+  safeSingle,
+} from "@/services/supabase/supabaseServiceUtils";
+import { normalizeSupabaseError } from "@/services/supabase/supabaseErrors";
 
 // Row shape as stored (Stage 2 migration 5, seo_recommendations). Several
 // Stage-2-only columns (audit_run_id, is_high_risk_category, is_current,
@@ -117,4 +123,36 @@ export async function fetchSupabaseRecommendationById(id: string): Promise<SeoRe
     supabase.from(SEO_TABLES.recommendations).select(RECOMMENDATION_COLUMNS).eq("id", id).maybeSingle(),
   );
   return row ? mapToSeoRecommendation(row) : null;
+}
+
+/**
+ * Recommendation Generation Stage 1 — calls the guarded
+ * `seo_recommendation_generate` RPC (only the website id; no client-supplied
+ * workspace/actor/content/provenance — the backend derives all of that and
+ * is the sole authoritative gate) then re-reads the persisted canonical
+ * current set through the existing Stage-1-equivalent read path, mirroring
+ * `generateSupabaseCompetitors`'s "RPC then re-read" shape so the backend's
+ * mapping/replace-to-match logic is never reproduced client-side. The RPC
+ * itself already returns the canonical current set (`RETURNS SETOF
+ * seo_recommendations`) — the response is validated as an array (proving
+ * the call succeeded) but its rows are not trusted directly, for the same
+ * "read the persisted state, don't trust the write response" discipline
+ * used by every prior guarded-generation service function in this repo.
+ */
+export async function generateSupabaseRecommendations(websiteId: string): Promise<SeoRecommendation[]> {
+  const label = "seoRecommendationSupabaseService.generateSupabaseRecommendations";
+  await requireAuthenticatedUser(label);
+  requireValidUuid(label, websiteId, "websiteId");
+
+  const { data, error } = await supabase.rpc(SEO_RPCS.recommendationGenerate, {
+    p_website_id: websiteId,
+  });
+  if (error) {
+    throw new Error(`${label}: ${normalizeSupabaseError(error).message}`);
+  }
+  if (!Array.isArray(data)) {
+    throw new Error(`${label}: unexpected RPC response (expected an array of rows, got ${JSON.stringify(data)}).`);
+  }
+
+  return fetchSupabaseRecommendations(websiteId);
 }

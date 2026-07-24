@@ -200,6 +200,18 @@ export const SEO_RPCS = {
   // persists via replace-to-match under a transaction-scoped advisory lock.
   // Returns the integer size of the canonical set.
   competitorGenerate: "seo_competitor_generate",
+
+  // Recommendation Generation Stage 1 — guarded generation (migration
+  // 20260724130000). SECURITY DEFINER, EXECUTE = authenticated only (anon +
+  // PUBLIC revoked up-front); owner/admin/team_member gated in-function
+  // (client/anon/nonmember/cross-tenant denied). Accepts only p_website_id —
+  // workspace/actor/business-context are server-derived. Converts real
+  // open/in_review audit issues from the latest completed audit run, plus 7
+  // fixed on-page templates, into canonical seo_recommendations rows via a
+  // three-way replace-to-match (insert / no-write-if-unchanged / supersede-
+  // if-changed-and-untouched / retire-if-resolved-and-untouched). Returns
+  // the canonical current recommendation set (SETOF), not a transient count.
+  recommendationGenerate: "seo_recommendation_generate",
 } as const;
 
 export type SeoRpcName = (typeof SEO_RPCS)[keyof typeof SEO_RPCS];
