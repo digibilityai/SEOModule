@@ -8,6 +8,13 @@ interface CompetitorOverviewHeaderProps {
   overview: CompetitorOverview;
   onRefresh: () => void;
   isRefreshing: boolean;
+  /**
+   * When true, the Refresh control is disabled (e.g. real-data mode where
+   * benchmark generation is a later stage). Optional — omitted keeps the
+   * previous always-enabled behaviour.
+   */
+  refreshDisabled?: boolean;
+  refreshDisabledReason?: string;
 }
 
 export function CompetitorOverviewHeader({
@@ -15,6 +22,8 @@ export function CompetitorOverviewHeader({
   overview,
   onRefresh,
   isRefreshing,
+  refreshDisabled = false,
+  refreshDisabledReason,
 }: CompetitorOverviewHeaderProps) {
   return (
     <Card>
@@ -24,7 +33,13 @@ export function CompetitorOverviewHeader({
             <CardTitle>{website.name}</CardTitle>
             <CardDescription>{website.website_url}</CardDescription>
           </div>
-          <Button onClick={onRefresh} disabled={isRefreshing} variant="outline" size="sm">
+          <Button
+            onClick={onRefresh}
+            disabled={isRefreshing || refreshDisabled}
+            title={refreshDisabled ? refreshDisabledReason : undefined}
+            variant="outline"
+            size="sm"
+          >
             {isRefreshing ? "Refreshing..." : "Refresh benchmark data"}
           </Button>
         </div>

@@ -1,7 +1,7 @@
 > ## ⚠️ SUPERSEDED — this handover has been consolidated
 >
 > **As of 2026-07-20, the authoritative context package is the four `SEO_*` files.
-> START A NEW SESSION FROM [`SEO_CONTEXT_HANDOVER.md`](SEO_CONTEXT_HANDOVER.md)**,
+> START A NEW SESSION FROM [`SEO_CONTEXT_HANDOVER.md`](../../SEO_CONTEXT_HANDOVER.md)**,
 > then follow its reading order (`SEO_IMPLEMENTATION_STATUS.md` →
 > `SEO_PROJECT_CONTEXT.md` → `SEO_DECISIONS.md` → `MODULE_LOCKS.md`).
 >

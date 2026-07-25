@@ -3,8 +3,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useResolvedActiveWebsite } from "@/hooks/useResolvedActiveWebsite";
+import { isSupabaseMode } from "@/config/runtimeConfig";
 import { fetchOnboardingByWebsiteId } from "@/services/businessOnboardingService";
+import { getCurrentSeoRole } from "@/services/supabase/seoWorkspaceService";
 import {
+  canGenerateCompetitorBenchmarks,
   fetchBenchmarkComparisons,
   fetchCompetitorGaps,
   fetchCompetitorOverview,
@@ -18,9 +21,16 @@ import { CompetitorGapSummary } from "./competitors/CompetitorGapSummary";
 import { BenchmarkComparisonSection } from "./competitors/BenchmarkComparisonSection";
 import { CompetitorCard } from "./competitors/CompetitorCard";
 
+// Competitor Benchmarking Stage 2B — the role-gate denial reason shown when
+// signed in as a role the seo_competitor_generate RPC does not permit
+// (client, or no active membership). Matches the established wording used for
+// the Stage 6 role-gated controls (CampaignBuilder/CampaignList/OpportunityCard).
+const GENERATION_ROLE_DENIED_REASON = "Requires the owner, admin, or team member role.";
+
 export function CompetitorAnalysisPage() {
   const queryClient = useQueryClient();
   const { activeWebsite, isLoading: isLoadingWebsite } = useResolvedActiveWebsite();
+  const supabaseMode = isSupabaseMode();
 
   const { data: onboarding, isLoading: isLoadingOnboarding } = useQuery({
     queryKey: ["seo-onboarding", activeWebsite?.id],
@@ -28,6 +38,19 @@ export function CompetitorAnalysisPage() {
     enabled: !!activeWebsite,
   });
   const isOnboardingComplete = onboarding?.status === "completed";
+
+  // The signed-in user's REAL seo_workspace_members.seo_role for this
+  // website's workspace — the actual authorization source
+  // seo_competitor_generate checks server-side. Supabase mode only: mock mode
+  // has no seo_workspace_members rows, so role gating is skipped there
+  // entirely (see canGenerateCompetitorBenchmarks) and generation stays
+  // enabled, unchanged from the app's pre-existing mock behaviour.
+  const { data: currentSeoRole } = useQuery({
+    queryKey: ["seo-current-role", activeWebsite?.workspace_id],
+    queryFn: () => getCurrentSeoRole(activeWebsite!.workspace_id),
+    enabled: !!activeWebsite && supabaseMode,
+  });
+  const generatePermitted = canGenerateCompetitorBenchmarks(currentSeoRole ?? null, supabaseMode);
 
   const { data: competitors = [], isLoading: isLoadingCompetitors } = useQuery({
     queryKey: ["seo-competitors", activeWebsite?.id],
@@ -140,10 +163,19 @@ export function CompetitorAnalysisPage() {
             {activeWebsite.name} compares.
           </CardDescription>
         </CardHeader>
-        <CardContent>
-          <Button onClick={() => generateMutation.mutate()} disabled={generateMutation.isPending}>
+        <CardContent className="space-y-2">
+          <Button
+            onClick={() => generateMutation.mutate()}
+            disabled={generateMutation.isPending || !generatePermitted}
+            title={!generatePermitted ? GENERATION_ROLE_DENIED_REASON : undefined}
+          >
             {generateMutation.isPending ? "Generating..." : "Generate benchmark data"}
           </Button>
+          {generateMutation.isError && (
+            <p className="text-sm text-destructive">
+              Couldn't generate benchmark data just now. Please try again.
+            </p>
+          )}
         </CardContent>
       </Card>
     );
@@ -157,7 +189,12 @@ export function CompetitorAnalysisPage() {
           overview={overview}
           onRefresh={() => generateMutation.mutate()}
           isRefreshing={generateMutation.isPending}
+          refreshDisabled={!generatePermitted}
+          refreshDisabledReason={GENERATION_ROLE_DENIED_REASON}
         />
+      )}
+      {generateMutation.isError && (
+        <p className="text-sm text-destructive">Couldn't refresh benchmark data just now. Please try again.</p>
       )}
       <SafetyNotice text={COMPETITOR_SAFETY_NOTICE} />
 

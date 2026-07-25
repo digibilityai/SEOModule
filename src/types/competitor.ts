@@ -20,6 +20,11 @@ export interface Competitor extends SeoBaseRecord {
   authority_opportunities: string[];
   ai_visibility_opportunities: string[];
   suggested_next_action: string;
+  // Optional source provenance for persisted (Supabase) competitor rows.
+  // Always "estimated" today — these scores are heuristic estimates, never
+  // externally measured data. Absent on mock rows. (Competitor Stage 1.)
+  data_provenance?: string;
+  generation_method?: string;
 }
 
 export type BenchmarkDimension =

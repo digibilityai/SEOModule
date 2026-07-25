@@ -95,6 +95,12 @@ export const SEO_TABLES = {
   // Customer-readable (own workspace) via RLS; read-only from the frontend
   // (no write RPC / generation ships in Stage 1).
   reports: "seo_reports",
+
+  // Competitor Benchmarking Stage 1 — persisted competitor rows (migration
+  // 20260720123000). Workspace/website-scoped RLS (member SELECT incl. client;
+  // owner/admin/team_member write). Scores are truthful heuristic ESTIMATES
+  // (data_provenance='estimated'), never external measured data.
+  competitors: "seo_competitors",
 } as const;
 
 export type SeoTableName = (typeof SEO_TABLES)[keyof typeof SEO_TABLES];
@@ -184,6 +190,28 @@ export const SEO_RPCS = {
   // already-persisted canonical seo_reports row for client-side PDF rendering;
   // never regenerates.
   reportExportData: "seo_report_export_data",
+
+  // Competitor Benchmarking Stage 2A — guarded generation (migration
+  // 20260724120040). SECURITY DEFINER, EXECUTE = authenticated only (anon
+  // revoked up-front); owner/admin/team_member gated in-function (client/
+  // anon/nonmember/cross-tenant denied). Accepts only p_website_id — the
+  // competitor URL list and comparison score are server-derived. Runs a
+  // deterministic local heuristic (data_provenance='estimated' only) and
+  // persists via replace-to-match under a transaction-scoped advisory lock.
+  // Returns the integer size of the canonical set.
+  competitorGenerate: "seo_competitor_generate",
+
+  // Recommendation Generation Stage 1 — guarded generation (migration
+  // 20260724130000). SECURITY DEFINER, EXECUTE = authenticated only (anon +
+  // PUBLIC revoked up-front); owner/admin/team_member gated in-function
+  // (client/anon/nonmember/cross-tenant denied). Accepts only p_website_id —
+  // workspace/actor/business-context are server-derived. Converts real
+  // open/in_review audit issues from the latest completed audit run, plus 7
+  // fixed on-page templates, into canonical seo_recommendations rows via a
+  // three-way replace-to-match (insert / no-write-if-unchanged / supersede-
+  // if-changed-and-untouched / retire-if-resolved-and-untouched). Returns
+  // the canonical current recommendation set (SETOF), not a transient count.
+  recommendationGenerate: "seo_recommendation_generate",
 } as const;
 
 export type SeoRpcName = (typeof SEO_RPCS)[keyof typeof SEO_RPCS];

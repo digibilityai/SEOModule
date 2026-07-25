@@ -6,19 +6,34 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { isSupabaseMode } from "@/config/runtimeConfig";
 import { useResolvedActiveWebsite } from "@/hooks/useResolvedActiveWebsite";
 import { fetchAudits, fetchIssuesForAudit, runAudit } from "@/services/auditService";
-import { generateRecommendationsFromAudit } from "@/services/recommendationService";
+import { getCurrentSeoRole } from "@/services/supabase/seoWorkspaceService";
+import {
+  canGenerateRecommendations,
+  fetchRecommendations,
+  generateRecommendations,
+  generateRecommendationsFromAudit,
+} from "@/services/recommendationService";
 import { AuditHeader } from "./audit/AuditHeader";
 import { CrawlPanel } from "./audit/crawl/CrawlPanel";
 import { IssueSeveritySummary } from "./audit/IssueSeveritySummary";
 import { IssueCategorySummary } from "./audit/IssueCategorySummary";
 import { IssueCard } from "./audit/IssueCard";
+import { RecommendationGenerationPanel } from "./audit/RecommendationGenerationPanel";
 import { SafetyNotice } from "./shared/SafetyNotice";
+
+// Recommendation Generation Stage 2 — the role-gate denial reason shown when
+// signed in as a role the seo_recommendation_generate RPC does not permit
+// (client, or no active membership). Matches the established wording used
+// for every other role-gated generation control in this repo (Competitor
+// Stage 2B, Stage 6).
+const GENERATION_ROLE_DENIED_REASON = "Requires the owner, admin, or team member role.";
 
 export function WebsiteAuditPage() {
   const queryClient = useQueryClient();
   const { activeWebsite, isLoading: isLoadingWebsite } = useResolvedActiveWebsite();
   const [justFailed, setJustFailed] = useState(false);
   const isMockAuditMode = !isSupabaseMode();
+  const supabaseMode = !isMockAuditMode;
 
   const { data: audits = [], isLoading: isLoadingAudits } = useQuery({
     queryKey: ["seo-audits", activeWebsite?.id],
@@ -56,6 +71,39 @@ export function WebsiteAuditPage() {
     queryKey: ["seo-issues", resultAudit?.id],
     queryFn: () => fetchIssuesForAudit(resultAudit!.id),
     enabled: !!resultAudit && resultAudit.status === "completed",
+  });
+
+  // The signed-in user's REAL seo_workspace_members.seo_role for this
+  // website's workspace — the actual authorization source
+  // seo_recommendation_generate checks server-side. Supabase mode only:
+  // mock mode has no seo_workspace_members rows, so role gating is skipped
+  // there entirely (see canGenerateRecommendations) — matches Competitor
+  // Stage 2B's identical pattern.
+  const { data: currentSeoRole } = useQuery({
+    queryKey: ["seo-current-role", activeWebsite?.workspace_id],
+    queryFn: () => getCurrentSeoRole(activeWebsite!.workspace_id),
+    enabled: !!activeWebsite && supabaseMode,
+  });
+  const generatePermitted = canGenerateRecommendations(currentSeoRole ?? null, supabaseMode);
+
+  // Real persisted recommendations — only relevant in Supabase mode (mock
+  // mode's recommendations are shown via the pre-existing auto-generate
+  // flow inside runAuditMutation below, unchanged).
+  const { data: recommendations = [] } = useQuery({
+    queryKey: ["seo-recommendations", activeWebsite?.id],
+    queryFn: () => fetchRecommendations(activeWebsite!.id),
+    enabled: !!activeWebsite && supabaseMode && resultAudit?.status === "completed",
+  });
+
+  const invalidateRecommendationData = () => {
+    queryClient.invalidateQueries({ queryKey: ["seo-recommendations", activeWebsite?.id] });
+    queryClient.invalidateQueries({ queryKey: ["seo-onpage-recommendations", activeWebsite?.id] });
+    queryClient.invalidateQueries({ queryKey: ["seo-approval-queue", activeWebsite?.id] });
+  };
+
+  const generateRecommendationsMutation = useMutation({
+    mutationFn: () => generateRecommendations(activeWebsite!),
+    onSuccess: invalidateRecommendationData,
   });
 
   const runAuditMutation = useMutation({
@@ -160,6 +208,18 @@ export function WebsiteAuditPage() {
                 <IssueCard key={issue.id} issue={issue} />
               ))}
             </div>
+          )}
+
+          {supabaseMode && (
+            <RecommendationGenerationPanel
+              recommendationCount={recommendations.length}
+              issueCount={issues.length}
+              isGenerating={generateRecommendationsMutation.isPending}
+              isError={generateRecommendationsMutation.isError}
+              generatePermitted={generatePermitted}
+              deniedReason={GENERATION_ROLE_DENIED_REASON}
+              onGenerate={() => generateRecommendationsMutation.mutate()}
+            />
           )}
         </>
       )}
