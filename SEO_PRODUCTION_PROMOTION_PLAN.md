@@ -18,7 +18,7 @@
 > | SEO production Supabase project | **Does not exist / has not been identified.** No production rollout of any kind has occurred. (The 2026-07-24 project listing this plan cites showed only `Digi_SEO_Test` and `Digi_Visi`, whose role is unknown and which this module has never touched.) |
 > | Migration files in the repository | **42** in `supabase/migrations/` (the plan below was written when there were 41) |
 > | Migrations recorded on `Digi_SEO_Test` | **40**, the latest being `20260724120040`; TEST is `ACTIVE_HEALTHY` |
-> | Repo migrations **not** recorded on TEST | **Two:** (1) `20260720121000` — SSO identity bridge, **deliberately deferred** (`SEO_DECISIONS.md` A14); (2) `20260724130000` — Recommendation Generation, **deliberately absent after its documented 2026-07-24 rollback** (locally verified; locked in Git; needs separate approval before TEST re-application) |
+> | Repo migration **not** recorded on TEST | **One:** `20260720121000` SSO identity bridge. Its objects are physically present on TEST and semantically match the canonical migration; it is unrecorded in migration history (who applied it and how is not established; reconciliation is a separate unresolved follow-up). `20260724130000` Recommendation Generation was promoted, recorded and verified on TEST on 2026-09-19. |
 > | Canonical `main` | `9cb3676` (Recommendation Generation Stages 1–2 locked and merged) |
 > | Roadmap Backend | Design only; not implemented (`SEO_ROADMAP_BACKEND_ARCHITECTURE.md`; approved architecture plans → periods → items). Roadmap frontend is mock-backed only. |
 >
@@ -85,7 +85,7 @@ ancestry at the snapshot (most recent first):
 | P1b — Verified-only Crawl Enqueue Enforcement | 2026-07-19 | Full |
 | Reports v1 (persisted read + guarded generation + PDF export, Stages 1–3) | 2026-07-20 | Approved scope; CSV/history/scheduling/email/sharing/period-comparison deferred |
 | Competitor Benchmarking (persisted read + guarded generation + frontend integration, Stages 1–2) | 2026-07-24 | Approved scope; real external provider integration, scheduled regeneration, plan-tier limits, CSV export, trend history deferred |
-| *(added 2026-09-19)* Recommendation Generation — Stage 1 backend only | 2026-07-24 | Additive schema + guarded generation RPC (`20260724130000`); **not recorded on TEST** |
+| *(added 2026-09-19)* Recommendation Generation — Stage 1 backend only | 2026-07-24 | Additive schema + guarded generation RPC (`20260724130000`); **recorded and verified on TEST** (2026-09-19) |
 | *(added 2026-09-19)* Recommendation Generation — Stage 2 frontend integration | 2026-07-24 | Approved frontend scope; on `main` at `9cb3676` since 2026-09-19 |
 
 **Informally treated as locked** (per `MODULE_LOCKS.md`'s "Other modules marked
@@ -146,15 +146,15 @@ deployed. Concretely verified during this planning task:
 
 Confirmed live via `supabase migration list` during this planning task:
 
-- **2026-09-19 corrected state:** **42** migration files in
-  `supabase/migrations/`; **40 recorded** on `Digi_SEO_Test` (latest
-  `20260724120040`; TEST `ACTIVE_HEALTHY`); **two not recorded:**
-  - `20260720121000_seo_cross_project_identity_bridge.sql` — intentionally
-    deferred (`SEO_DECISIONS.md` A14); must not be applied without a separate,
-    explicitly-approved SSO task.
-  - `20260724130000_seo_recommendation_generate.sql` — deliberately absent after
-    its documented 2026-07-24 rollback; locally verified and locked in Git;
-    re-applying it to TEST needs a separately recorded approval.
+- **Current state (2026-09-19):** **42** migration files in `supabase/migrations/`;
+  **41 recorded** on `Digi_SEO_Test` (TEST `ACTIVE_HEALTHY`). The audit earlier on 2026-09-19 showed 40
+  recorded, before Recommendation Generation was promoted that day:
+  - `20260720121000_seo_cross_project_identity_bridge.sql`: **unrecorded** in migration history, but
+    its objects are already **physically present** on TEST and semantically match the canonical
+    migration. Who applied it and how is not established. History reconciliation is a separate
+    unresolved follow-up.
+  - `20260724130000_seo_recommendation_generate.sql`: rolled back on TEST 2026-07-24,
+    **promoted, recorded and verified** on TEST on 2026-09-19 (backend verification and concurrency proof passed).
 - *(2026-07-24 snapshot, superseded: 41 files, 40 applied, 1 pending — the
   pending one being the SSO migration.)*
 - No fixture residue reported by any retained verification script (Stage
@@ -173,8 +173,8 @@ production value has ever been chosen.
 | Dimension | `Digi_SEO_Test` (verified) | Production |
 |---|---|---|
 | **Supabase project** | `Digi_SEO_Test`, ref `snyzotgwwfomgafrsvfm` (Southeast Asia region, per prior TEST-apply evidence) | **UNKNOWN — no dedicated SEO production Supabase project has been created or identified.** REQUIRES OPERATOR DECISION: create a new dedicated project, or is a project already provisioned outside this repo's visibility? |
-| **Migrations** | 40 of 42 recorded (2026-09-19); `20260720121000` (SSO, deferred) and `20260724130000` (Recommendation Generation, absent after rollback) not recorded *(2026-07-24 snapshot: 40/41)* | **No SEO production project exists; none applied.** A promotion would apply whichever subset is decided at that time — up to all 42 files — via the same additive-only migration set; see §4. |
-| **Auth** | Standalone TEST/local password login is the working fallback; the cross-project SSO bridge (`seo-bridge` Edge Function + `20260720121000`) exists in code but is **unapplied and unused** | **REQUIRES OPERATOR DECISION:** does production launch with standalone SEO login, or does it require the SSO bridge live from day one? If SSO is required, that is a **separate, not-yet-scoped task** per `SEO_DECISIONS.md` A14 — this plan does not design or approve it. |
+| **Migrations** | 41 of 42 recorded (2026-09-19); `20260720121000` (SSO) physically present but unrecorded; `20260724130000` recorded and verified *(2026-07-24 snapshot: 40/41)* | **No SEO production project exists; none applied.** A promotion would apply whichever subset is decided at that time, up to all 42 files, via the same additive-only migration set; see §4. |
+| **Auth** | Standalone TEST/local password login is the working fallback; the cross-project SSO bridge (`seo-bridge` Edge Function + `20260720121000`) exists in code; the `20260720121000` objects are physically present on TEST but the migration is unrecorded in history (2026-09-19), and the bridge is **unused** | **REQUIRES OPERATOR DECISION:** does production launch with standalone SEO login, or does it require the SSO bridge live from day one? If SSO is required, that is a **separate, not-yet-scoped task** per `SEO_DECISIONS.md` A14 — this plan does not design or approve it. |
 | **Storage** | One private bucket, `seo-content-assets` (`public=false`, 20 MB limit, 5-MIME allowlist), created by migration `20260711120009_seo_stage3_content_assets.sql` | Same bucket definition ships via the same migration; no production-specific storage config exists yet. **UNKNOWN:** production storage quota/CDN/backup policy. |
 | **Functions (Edge Functions / RPCs)** | All RPCs are Postgres `SECURITY DEFINER` functions inside the repository migrations (41 at the 2026-07-24 snapshot, 42 now) — no separate Edge Function deployment for SEO itself. The **`seo-bridge` Edge Function is Digibility Core's**, not this repo's; a TEST instance is referenced in `cloudbuild.yaml` (`https://szxdfmcexafiwlgestpl.supabase.co/functions/v1/seo-bridge`) | **UNKNOWN:** whether Digibility Core has a production `seo-bridge` Edge Function deployed; that is outside this repository's control and must be confirmed with whoever owns Digibility Core. |
 | **Runtime config (frontend)** | `public/runtime-config.js` (tracked, forces `SEO_DATA_MODE:"mock"` by default) + Vite build-time `VITE_*` args baked into the JS bundle at image-build time (not Cloud Run runtime env vars — see `DIGIBILITY_FRONTEND_CLOUD_RUN_DEPLOYMENT_READINESS.md` §13) | Same mechanism would apply; a **separate production image build** (separate `--build-arg` values) is required — the TEST image cannot be relabeled and pointed at production, per Vite's build-time bundling. **REQUIRES OPERATOR DECISION:** production `VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY`/`VITE_DIGIBILITY_*` values. |
@@ -293,16 +293,18 @@ must follow a specific earlier file.
 | 39 | `20260720121000_seo_cross_project_identity_bridge.sql` | **Requires operator decision — DO NOT APPLY without a separate SSO task** | See §4.1 below; this is the sole pending migration |
 | 40 | `20260720123000_seo_competitors.sql` | Safe | New additive table `seo_competitors` |
 | 41 | `20260724120040_seo_competitor_generate.sql` | Requires sequencing | Depends on #40 + `seo_business_onboarding`/`seo_audit_runs` |
-| 42 *(added 2026-09-19)* | `20260724130000_seo_recommendation_generate.sql` | Requires sequencing **+ a TEST gate** | Depends on the Stage 2 `seo_recommendations` and audit tables (`20260711120004`/`…005`, `20260714120029`). Adds two nullable columns and two partial unique indexes to `seo_recommendations` plus one guarded RPC (`RETURNS SETOF seo_recommendations`). **Not recorded on TEST** (rolled back 2026-07-24): it has local verification only, so it should not reach production before a separately approved TEST application + verification. |
+| 42 *(added 2026-09-19)* | `20260724130000_seo_recommendation_generate.sql` | Requires sequencing | Depends on the Stage 2 `seo_recommendations` and audit tables (`20260711120004`/`…005`, `20260714120029`). Adds two nullable columns and two partial unique indexes to `seo_recommendations` plus one guarded RPC (`RETURNS SETOF seo_recommendations`). **Recorded and verified on TEST** (rolled back 2026-07-24, promoted and verified 2026-09-19). Any production use still needs a separate approved task. |
 
 ## 4.1 The one pending migration: `20260720121000_seo_cross_project_identity_bridge.sql`
 
 > **[2026-09-19 correction]** This section was written when SSO was the *only*
-> repository migration not recorded on TEST. There are now **two** (SSO, and
-> `20260724130000` Recommendation Generation — absent after rollback, see the
-> banner). The SSO analysis below is unchanged. In "Path A", "the 40 already-proven
-> migrations" means the 40 recorded on TEST; Recommendation Generation would be an
-> additional, separately gated item.
+> repository migration not recorded on TEST. **Update (2026-09-19):** SSO is again the only
+> unrecorded migration, but its objects are already physically present on TEST and
+> semantically match the canonical migration, so statements below that it has "never been
+> applied to any environment, including TEST" or has zero TEST evidence are superseded on
+> that point (who applied it and how is not established). The SSO path analysis is
+> otherwise unchanged. "The 40 already-proven migrations" is the 2026-07-24 and 2026-09-19
+> count; 41 are recorded after the 2026-09-19 promotion (`20260724130000` promoted and verified).
 
 This is the **only** migration not yet applied anywhere, including TEST. Per
 `SEO_DECISIONS.md` A14, it is **intentionally deferred** and must not be

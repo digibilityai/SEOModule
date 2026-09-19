@@ -1253,13 +1253,20 @@ tree were identical (`912308d5f3b8f7423014da4b9ff637f00626a0f7`); after the
 2026-09-19 documentation-only integration `main` differs from `release` only by
 documentation files. `release` was not modified by this reconciliation._
 
-_**Deployment caveat that still applies:** the Stage 2 frontend calls
-`seo_recommendation_generate`, whose migration
-(`20260724130000_seo_recommendation_generate.sql`) is **not recorded on
-`Digi_SEO_Test`** (rolled back 2026-07-24; see the Stage 1 entry and
-`SEO_RECOMMENDATION_GENERATION_STAGE1_VERIFICATION.md`). Merging to `main`
-did not change that. See `SEO_CONTEXT_HANDOVER.md` §0 for the current
-authoritative state._
+_**Deployment caveat (as of the 2026-09-19 audit, before the promotion that day; superseded):** the Stage 2 frontend calls
+`seo_recommendation_generate`, whose migration (`20260724130000_seo_recommendation_generate.sql`)
+was then not recorded on `Digi_SEO_Test` (rolled back 2026-07-24)._
+
+_**TEST promotion note (2026-09-19, additive):** migration `20260724130000` was promoted to
+`Digi_SEO_Test` and verified on 2026-09-19 (targeted application, history repair recording only that version,
+backend verification script and two session concurrency proof passed with 8 current rows, 8
+distinct identities and 0 duplicates, zero residue, the 8 legacy rows unchanged, local regression
+passed, implementation unchanged). TEST end to end backend readiness is confirmed; optional live
+frontend write verification was not performed. Locked scope and protected contracts are
+unchanged. Historical statements in the Stage 1 and Stage 2 entries above (for example that the
+SSO migration "remained pending/unapplied") were accurate when written and are preserved; SSO
+`20260720121000` is physically present on TEST but unrecorded in migration history. See
+`SEO_CONTEXT_HANDOVER.md` §0 for the current state._
 
 ---
 

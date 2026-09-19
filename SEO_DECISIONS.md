@@ -132,6 +132,14 @@ current state.
   is *deliberately absent after its documented rollback* — not a "pending
   deferral" of the same kind. Both must be applied only in isolation and only on
   explicit approval. The SSO decision itself is unchanged.
+  **Update (2026-09-19, after the TEST promotion):** the statements above that call
+  `20260720121000` "pending" or "unapplied" describe migration history only. Physical state:
+  its objects are already present on `Digi_SEO_Test` and semantically match the canonical
+  migration. Migration history: unrecorded. It was not changed during the Recommendation
+  Generation promotion. Who applied it and how is not established. `20260724130000` is now
+  recorded on TEST (41 of 42 recorded, so SSO is the one unrecorded migration). History
+  reconciliation is a separate, unresolved follow-up: not started, not the automatic next
+  task, and no anon hardening is part of this decision.
 - **A15. Competitor generation = server-side authoritative heuristic via a guarded
   RPC** (Competitor Stage 2A, migration `20260724120040`).
   `public.seo_competitor_generate(p_website_id uuid) RETURNS integer` is
@@ -425,6 +433,16 @@ current state.
     `IMPLEMENTED — LOCALLY VERIFIED — ACCEPTED — MODULE-LOCKED — PUSHED —
     MERGED TO MAIN`.
 
+  **THIRD AMENDMENT (2026-09-19, TEST promotion).** Migration `20260724130000` was
+  promoted to `Digi_SEO_Test` and verified on 2026-09-19: targeted application; history repair recorded only that
+  version; backend verification script exit success; two session advisory lock behavior proven with
+  8 current rows, 8 distinct identities and 0 duplicates; fixtures removed with zero residue; the 8
+  legacy recommendation rows unchanged; local regression passed (48 of 48, TypeScript, build);
+  canonical implementation unchanged; production never contacted; `release` untouched. This ends the
+  deliberate absence described in the amendments above (they are preserved as history). TEST end to
+  end backend readiness is confirmed. Optional live frontend write verification was not performed.
+  The Stage 1 and Stage 2 locks are unchanged.
+
 - **A18. Recommendation generation frontend integration = same adapter +
   role-gate pattern as Competitor Stage 2B / Reports Stage 2**
   (Recommendation Generation Stage 2, frontend-only, no migration).
@@ -574,8 +592,9 @@ current state.
     main`. The Stage 1 lock is unchanged. `origin/release` (`c9d840b`, a merge
     commit not in `main`) was tree-identical to `9cb3676` (after the docs-only
     integration it differs from `main` only by documentation files) and was left untouched.
-    **TEST caveat unchanged:** the frontend expects `seo_recommendation_generate`,
-    whose migration `20260724130000` is not recorded on `Digi_SEO_Test`.
+    **TEST caveat (as of the 2026-09-19 audit, before the promotion that day; superseded):** the frontend expects `seo_recommendation_generate`,
+    whose migration `20260724130000` was then not recorded on `Digi_SEO_Test`. It was
+    promoted and verified on TEST on 2026-09-19 (see the A17 third amendment).
 
 - **A19. Roadmap Backend architecture = `plans → periods → items`; status
   DESIGN ONLY — not implemented (decision recorded 2026-09-19).**

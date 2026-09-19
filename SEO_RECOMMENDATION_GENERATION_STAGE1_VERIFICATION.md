@@ -1,5 +1,15 @@
 # Recommendation Generation Stage 1 — Backend Verification Record
 
+> **Reconciliation note (dated 2026-09-19, added after the TEST promotion; the original record below is unchanged).**
+> Statements in this record that `Digi_SEO_Test` "remains rolled back" or carries none of this feature
+> (the top update notice, §4 and §5) describe the state on 2026-07-24. Migration `20260724130000` was
+> **promoted, recorded and verified on `Digi_SEO_Test`** on 2026-09-19: targeted application; history repair
+> recorded only that version; backend verification script exit success; two session advisory lock
+> proof with 8 current rows, 8 distinct identities and 0 duplicates; fixtures removed with zero
+> residue; the 8 legacy recommendation rows unchanged. The "Not pushed or merged to `main`" wording
+> is also historical: Stage 1 is on canonical `main` (`808d54d`, `e7b1fbe`). Current state:
+> `SEO_IMPLEMENTATION_STATUS.md` §0 and §5.
+
 > **UPDATE (2026-07-24, later same day): GENUINE LOCAL VERIFICATION
 > COMPLETE — STAGE 1 ACCEPTED AND MODULE-LOCKED.** §6 below records a full
 > pass of the SQL verification suite and the live two-session concurrency

@@ -26,18 +26,14 @@ pending migration", read §0 — it is the current truth.
 | `origin/release` | `c9d840b` — merge commit not in `main`; at `9cb3676` its tree was identical to `main`'s (`912308d5…`), after the docs integration `main` differs only by documentation files; **non-canonical, untouched** |
 | Recommendation Generation Stage 1 (backend) | **Complete, LOCKED**, on `main` |
 | Recommendation Generation Stage 2 (frontend) | **Complete, LOCKED, merged to canonical `main`** (`36d32af` + `9cb3676`) |
-| Roadmap Backend | **DESIGN ONLY — NOT IMPLEMENTED.** The approved architecture is **plans → periods → items**, which **supersedes** the earlier flat single-table (`seo_roadmap_items`) design still preserved, marked superseded, in `SEO_ROADMAP_BACKEND_ARCHITECTURE.md`; the three-level details beyond the hierarchy are **TBD** there. **No Roadmap migration, RPC, table or Supabase service exists in Git.** The Roadmap frontend (`/seo/roadmap` page + `roadmapService.ts`) exists **only as a mock-backed UI/service** — no `runWithServiceAdapter`, no Supabase call, in every data mode. |
+| Roadmap Backend | **DESIGN ONLY — NOT IMPLEMENTED.** The approved architecture is **plans → periods → items**, which **supersedes** the earlier flat single-table (`seo_roadmap_items`) design still preserved, marked superseded, in `SEO_ROADMAP_BACKEND_ARCHITECTURE.md`; the three-level details beyond the hierarchy are **TBD** there, and the detailed backend architecture still requires reconstruction and review before any implementation. **No Roadmap migration, RPC, table or Supabase service exists in Git.** The Roadmap frontend (`/seo/roadmap` page + `roadmapService.ts`) exists **only as a mock-backed UI/service** — no `runWithServiceAdapter`, no Supabase call, in every data mode. |
 | Repo migrations | **42** files in `supabase/migrations/` |
-| `Digi_SEO_Test` | Restored, **`ACTIVE_HEALTHY`**; **40 migrations recorded**, latest `20260724120040` |
-| Not recorded on TEST | `20260720121000` SSO (deliberately deferred); `20260724130000` Recommendation Generation (deliberately absent after documented 2026-07-24 rollback) |
+| `Digi_SEO_Test` | Restored, **`ACTIVE_HEALTHY`**; **41 of 42** repository migrations recorded; latest recorded `20260724130000` |
+| Not recorded on TEST | `20260720121000` (SSO identity bridge). **Physical state:** its objects are already present on `Digi_SEO_Test` and semantically match the canonical migration. **Migration history:** unrecorded. SSO state was not changed by the Recommendation Generation promotion. It is not established who applied it or how, and this documentation does not claim to know. Migration history reconciliation is a separate, unresolved follow-up: not started, and not the automatic next task. |
+| Recommendation Generation on TEST | Migration `20260724130000` is **applied, recorded and verified** on `Digi_SEO_Test` on 2026-09-19 (after its 2026-07-24 rollback). TEST end to end **backend** readiness is confirmed (evidence: `SEO_IMPLEMENTATION_STATUS.md` §5). **Optional live frontend write verification (the Generate button against TEST) was not performed** and is not recorded as done. |
 | Production | **No SEO production Supabase project exists / identified. No production rollout has occurred.** |
 
-TEST facts are from the operator-reported read-only 2026-09-19 migration-history
-audit; the reconciliation task did not contact Supabase. **Consequence:** the
-`main` frontend calls `seo_recommendation_generate`, which TEST does not have —
-Generate would fail with a generic error on a TEST deployment until
-`20260724130000` is separately approved and applied (nothing is written; read
-paths are unaffected).
+TEST facts come from the operator-reported 2026-09-19 audit (40 recorded, before the promotion that day) and the 2026-09-19 promotion's verified execution evidence (41 of 42 recorded after it). The reconciliation tasks did not contact Supabase. The `main` frontend calls `seo_recommendation_generate`, which now exists on TEST. No live frontend write verification against TEST has been performed.
 
 ---
 
@@ -62,7 +58,7 @@ paths are unaffected).
 | **Competitor Benchmarking — Stage 2A (guarded generation RPC)** | **BACKEND-IMPLEMENTED + TEST-VERIFIED + CONCURRENCY-VERIFIED + MODULE-LOCKED on `Digi_SEO_Test` (2026-07-24).** Additive migration `20260724120040_seo_competitor_generate.sql` introduces one guarded `SECURITY DEFINER` RPC `public.seo_competitor_generate(p_website_id uuid) RETURNS integer` (`SET search_path=public`; `authenticated` EXECUTE, **anon revoked up-front + PUBLIC revoked** — no corrective follow-up needed) plus an internal `IMMUTABLE` helper `seo_competitor_heuristic_score(text)` (PUBLIC-revoked). Server-derives actor/workspace/website-url from `seo_websites`, the competitor URL list from `seo_business_onboarding.competitors`, and the comparison score from the latest completed `seo_audit_runs` — **accepts only `p_website_id`; no client-supplied workspace/actor/scores/provenance/timestamps/metadata**. Authorizes owner/admin/team_member or global admin (**client/anon/non-member/cross-tenant denied with one non-leaking message; missing website == unauthorized**). **Deterministic local heuristic** reproducing the repo's confirmed rule (`hashStringToRange(url:dimension,35,90)` + 5-dim mean; `competitorService`-parity 8-dim our-score → status), **without** the mock's non-deterministic regenerate nudge, so repeated generation is **stable/idempotent**. Persists only `data_provenance='estimated'` + `generation_method='heuristic_v1'` (**never SEMrush/Ahrefs/GSC/measured/observed/verified/live**). Normalizes competitor URLs to the Stage 1 host contract; enforces `UNIQUE(website_id, normalized_competitor_url)`; **transaction-scoped `pg_advisory_xact_lock`** keyed to (website, generation op); **replace-to-match** (upsert canonical set + delete stale rows for that website only; other websites/workspaces untouched; empty-onboarding = non-destructive return 0). **SQL verification ALL PASS** (contract/grants/advisory-lock; owner/admin/team_member allowed; client/anon/non-member/cross-tenant denied + no-leak; server-derived fields; deterministic+idempotent; normalized de-dup+uniqueness; only-`estimated`; score bounds+required fields; audit-derived status; stale-row removal; other-website + cross-workspace isolation; non-destructive empty; **0 residue**); Stage 1 competitor regression PASS; vitest 20/20; `tsc` clean; `npm run build` clean. **Migration RECORDED on TEST (2026-07-24):** DDL applied via isolated `supabase db query --linked -f` (not `db push`), then `20260724120040` marked applied via `supabase migration repair --status applied` — **recorded exactly once; SSO `20260720121000` remains the only pending/unapplied migration; no other migration status changed; production never contacted.** **Concurrency: true two-session lock-wait VERIFIED on TEST (2026-07-24)** — two independent concurrent `supabase db query --linked` sessions against `Digi_SEO_Test` (same method as the P1b/Reports proofs): Session A called the RPC then held its transaction open via `pg_sleep(8)`; Session B, started ~1.5 s later, called the RPC on the same website and was directly observed in `pg_stat_activity` as `wait_event_type=Lock, wait_event=advisory` (blocked ~2.29 s at the observation point) while Session A was mid-`PgSleep`; once Session A committed, Session B unblocked and completed. Post-race state: exactly one canonical row per competitor (2 rows, 2 distinct normalized URLs, no duplicates, no unique-constraint error) — both rows' `created_at` from Session A's INSERT, both rows' `updated_at` from Session B's subsequent `ON CONFLICT DO UPDATE` pass, confirming clean serialization with no interleaved/partial write. Replace-to-match re-verified functioning identically after the race (competitor swap correctly applied). 0 residue across all 5 disposable fixture tables. Full method, timeline, and raw evidence: `COMPETITOR_STAGE2A_CONCURRENCY_VERIFICATION.md`. **COMMITTED + PUSHED + MERGED to `main` (2026-07-24, HEAD `a594d1d`); MODULE-LOCKED (2026-07-24).** | **LOCKED** (part of **Competitor Benchmarking**, Stages 1–2; 2026-07-24) | `supabase/migrations/20260724120040_seo_competitor_generate.sql`, `supabase/test/seo_competitor_generate_verification.sql`, `supabase/test/seo_competitor_generate_rollback_TEST_ONLY.sql`, `COMPETITOR_STAGE2A_CONCURRENCY_VERIFICATION.md` |
 | **Recommendation Generation — Stage 1 (guarded generation RPC, backend only)** | **`IMPLEMENTED — LOCALLY VERIFIED — ACCEPTED — MODULE-LOCKED (2026-07-24)`.** Additive migration `20260724130000_seo_recommendation_generate.sql` adds two nullable columns (`source_issue_fingerprint`, `generation_method`) and two partial unique indexes (`WHERE is_current`) to `seo_recommendations`, plus one guarded `SECURITY DEFINER` RPC `public.seo_recommendation_generate(p_website_id uuid) RETURNS SETOF seo_recommendations` (`SET search_path=public`; `authenticated` EXECUTE, **anon + PUBLIC revoked up-front**). Converts real, crawler-detected `seo_audit_issues` (status `open`/`in_review` only, from the latest completed audit run) plus 7 fixed on-page templates into canonical `seo_recommendations` rows, reproducing the existing mock's `CATEGORY_TO_AREA` / `ACTION_TYPE_BY_FIX_OWNER` mapping and `ON_PAGE_TEMPLATES` server-side — no AI/LLM, no new categories. Authorizes owner/admin/team_member or global admin (client/anon/non-member/cross-tenant denied, one non-leaking message; missing website == unauthorized). **First real consumer of the existing `is_current`/`superseded_by` versioning**: three-way replace-to-match (insert-new / no-write-if-unchanged / supersede-if-changed-and-still-`suggested`-or-`needs_review` / leave-alone-if-a-human-already-acted / retire-if-resolved-and-untouched) — a human decision (`approved`, `ready_to_publish`, etc.) is never silently overwritten by a later regeneration. Returns the **canonical current recommendation set** (not a transient count).
 
-  **Correct current status (2026-07-24, environment-control reconciliation):** the governing delivery sequence for this project is **local development → full local verification → `Digi_SEO_Test` → production.** This migration+RPC was applied to and exercised against `Digi_SEO_Test` **ahead of that gate** — no local Postgres/Docker/`psql` was available in the implementing session, and the interactive approval to substitute `Digi_SEO_Test` was **not** recorded in the controlling ChatGPT instruction trail. **The `Digi_SEO_Test` application has since been fully rolled back** (RPC, both indexes, both columns dropped; migration `20260724130000` no longer recorded as applied; verified byte-for-byte that the 8 pre-existing, unrelated `seo_recommendations` rows were never touched; SSO `20260720121000` still pending at that time; 0 residue). `Digi_SEO_Test` carries **none** of this work (re-confirmed by the 2026-09-19 audit: `20260724130000` is not among the 40 recorded migrations).
+  **Correct current status (2026-07-24, environment-control reconciliation):** the governing delivery sequence for this project is **local development → full local verification → `Digi_SEO_Test` → production.** This migration+RPC was applied to and exercised against `Digi_SEO_Test` **ahead of that gate** — no local Postgres/Docker/`psql` was available in the implementing session, and the interactive approval to substitute `Digi_SEO_Test` was **not** recorded in the controlling ChatGPT instruction trail. **The `Digi_SEO_Test` application has since been fully rolled back** (RPC, both indexes, both columns dropped; migration `20260724130000` no longer recorded as applied; verified byte-for-byte that the 8 pre-existing, unrelated `seo_recommendations` rows were never touched; SSO `20260720121000` still pending at that time; 0 residue). `Digi_SEO_Test` carried **none** of this work as of the 2026-09-19 audit (historical: promoted and verified on 2026-09-19, see §0 and §5).
 
   **What was proven, and what it does and does not establish:** the SQL verification suite (contract, full authz matrix + no-leak, category/fix_owner mapping, eligibility, on-page interpolation, RPC-return-equals-canonical-set, idempotency with provable no-write, the full regeneration-safety matrix — supersede/no-write/retire/preserve for both an issue-derived and an on-page row, dedup-index enforcement, isolation, non-destructive no-audit case) and the live two-session advisory-lock concurrency proof (Session B directly observed `wait_event=advisory`, genuinely blocked, while Session A held the lock; 8 current rows / 8 distinct identities / 0 duplicates post-race) both ran to completion with 0 fixture residue **against `Digi_SEO_Test`** — retained as historical engineering evidence that the design behaves as intended, but it did **not**, on its own, satisfy the local-verification gate (performed against `Digi_SEO_Test`, not a local database, and out of sequence).
 
@@ -147,24 +143,34 @@ paths are unaffected).
 - **Lock:** formal `P1b — Verified-only Crawl Enqueue Enforcement` entry added to
   `MODULE_LOCKS.md` (2026-07-19). **No further P1b implementation work is required.**
 
-## 5. TEST state (as of the 2026-09-19 audit)
+## 5. TEST state
 
-- `Digi_SEO_Test` (ref `snyzotgwwfomgafrsvfm`) is **restored and `ACTIVE_HEALTHY`**,
-  with **40 migrations recorded**, the latest being `20260724120040`. It carries
-  the applied P1a + 16C–16H + P1b + Reports v1 + Competitor Benchmarking
-  (Stages 1–2A) schema and passed all listed verifications; migration history was
-  clean when each was recorded.
-- **Two repository migrations are not recorded on TEST**, for different reasons:
-  - `20260720121000` (SSO identity bridge) — **deliberately deferred**
-    (`SEO_DECISIONS.md` A14); never applied anywhere.
-  - `20260724130000` (Recommendation Generation) — **deliberately absent**: applied
-    out of sequence on 2026-07-24, then fully rolled back the same day
-    (`SEO_RECOMMENDATION_GENERATION_STAGE1_VERIFICATION.md` §4). It is committed
-    and locked in Git; re-applying to TEST needs a separate, explicitly-recorded
-    approval.
-- Arithmetic check: 42 repository migrations − 2 unrecorded = 40 recorded.
-- Evidence source: operator-reported read-only migration-history audit
-  (2026-09-19); no Supabase call was made by the reconciliation task.
+- `Digi_SEO_Test` (ref `snyzotgwwfomgafrsvfm`) is **restored and `ACTIVE_HEALTHY`**, with **41 of 42**
+  repository migrations recorded (the audit earlier on 2026-09-19 showed 40, then Recommendation Generation was
+  promoted the same day). It carries the applied P1a, 16C to 16H, P1b, Reports v1, Competitor Benchmarking
+  and Recommendation Generation schema.
+- **Recommendation Generation `20260724130000`: promoted and verified on TEST on 2026-09-19.** It had been applied
+  out of sequence and rolled back on 2026-07-24
+  (`SEO_RECOMMENDATION_GENERATION_STAGE1_VERIFICATION.md` §4). Verified evidence from the 2026-09-19 promotion:
+  - targeted application of `20260724130000` alone succeeded;
+  - migration history repair recorded only `20260724130000`;
+  - the backend verification script exited successfully;
+  - two session concurrency verification proved the advisory lock behavior; final result was
+    8 current rows, 8 distinct identities and 0 duplicates;
+  - fixtures were removed with zero residue; the 8 existing legacy recommendation rows were unchanged;
+  - local regression passed: `npm test` 48 of 48, TypeScript check, build;
+  - canonical implementation was unchanged; production was never contacted; `release` was untouched.
+  TEST end to end **backend** readiness is confirmed. **Optional live frontend write verification
+  (the Generate button against TEST) was not performed** and must not be recorded as completed.
+- **SSO `20260720121000`: physically present, history unrecorded.** Its objects are already present
+  on TEST and semantically match the canonical migration, but the migration is not in migration
+  history. SSO state was not changed during the Recommendation Generation promotion. It is not
+  established who applied it or how. Earlier wording that calls it "pending", "unapplied" or "never
+  applied anywhere" is superseded on this point. History reconciliation is a separate, unresolved
+  follow-up (not started, not the automatic next task); no anon hardening is part of this record.
+- Arithmetic check: 42 repository migrations minus 1 unrecorded (SSO) = 41 recorded.
+- Evidence source: operator-reported 2026-09-19 audit plus the 2026-09-19 promotion's execution
+  evidence; the documentation tasks made no Supabase call.
 
 ## 6. Production state
 
@@ -243,8 +249,8 @@ paths are unaffected).
   step is pending for this track.** Evidence: `docs/markdown/MODULE_LOCKS.md`,
   `SEO_RECOMMENDATION_GENERATION_STAGE2_VERIFICATION.md`,
   `SEO_LOCAL_DATABASE_SETUP.md`.
-- **Open decisions (none started; each needs explicit approval):** (a) apply
-  `20260724130000` to `Digi_SEO_Test`, or keep it deliberately absent; (b) realign
+- **Open decisions (none started; each needs explicit approval):** (a) optional live frontend write verification of Recommendation Generation against TEST (not
+  performed), and SSO migration history reconciliation (separate unresolved follow-up); (b) realign
   `origin/release` with `main`; (c) implement Roadmap Backend — **design only
   today**; the approved architecture is **plans → periods → items**, superseding
   the flat `seo_roadmap_items` design preserved in

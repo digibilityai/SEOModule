@@ -27,10 +27,11 @@ retained as a chronological record; where they conflict with §0, §0 wins.
 | **`origin/release`** | `c9d840b7a1b26ff473408e1ccde2b90d52f32966` — a merge commit (PR #1) that brought the Stage 2 branch into `release`. It is **not** in `main`. At `9cb3676` its tree was identical to `main`'s (tree `912308d5f3b8f7423014da4b9ff637f00626a0f7`); after the docs integration `main` differs from `release` **only by documentation files**. `release` is **non-canonical** and was not modified. |
 | **Recommendation Generation Stage 1 (backend)** | **Complete, accepted, MODULE-LOCKED**, on `main` (`808d54d`, `e7b1fbe`, `c1de7fe`). |
 | **Recommendation Generation Stage 2 (frontend integration)** | **Complete, accepted, MODULE-LOCKED, and merged into canonical `main`** at `9cb3676`. |
-| **Roadmap Backend** | **DESIGN ONLY — NOT IMPLEMENTED.** The approved architecture is **plans → periods → items**, which **supersedes** the earlier flat single-table (`seo_roadmap_items`) design still preserved, marked superseded, in `SEO_ROADMAP_BACKEND_ARCHITECTURE.md`; the three-level details beyond the hierarchy are **TBD** there. **No Roadmap migration, RPC, table or Supabase service exists in Git.** The Roadmap frontend (`/seo/roadmap` page + `roadmapService.ts`) exists **only as a mock-backed UI/service** — no `runWithServiceAdapter`, no Supabase call, in every data mode. |
-| **`Digi_SEO_Test` (TEST)** | Restored and **`ACTIVE_HEALTHY`**. **40 migrations recorded**, the latest being `20260724120040`. |
+| **Roadmap Backend** | **DESIGN ONLY — NOT IMPLEMENTED.** The approved architecture is **plans → periods → items**, which **supersedes** the earlier flat single-table (`seo_roadmap_items`) design still preserved, marked superseded, in `SEO_ROADMAP_BACKEND_ARCHITECTURE.md`; the three-level details beyond the hierarchy are **TBD** there, and the detailed backend architecture still requires reconstruction and review before any implementation. **No Roadmap migration, RPC, table or Supabase service exists in Git.** The Roadmap frontend (`/seo/roadmap` page + `roadmapService.ts`) exists **only as a mock-backed UI/service** — no `runWithServiceAdapter`, no Supabase call, in every data mode. |
+| **`Digi_SEO_Test` (TEST)** | Restored and **`ACTIVE_HEALTHY`**. **41 of 42** repository migrations are recorded in migration history; the latest recorded is `20260724130000` (Recommendation Generation). |
 | **Repository migrations** | **42** files in `supabase/migrations/`. |
-| **Repo migrations NOT recorded on TEST** | (1) `20260720121000` — cross-project SSO identity bridge, **deliberately deferred** (`SEO_DECISIONS.md` A14). (2) `20260724130000` — Recommendation Generation, **deliberately absent after its documented 2026-07-24 rollback** (§4 environment-control reconciliation; `SEO_RECOMMENDATION_GENERATION_STAGE1_VERIFICATION.md` §4). |
+| **Repo migration NOT recorded on TEST** | `20260720121000` (SSO identity bridge). **Physical state:** its objects are already present on `Digi_SEO_Test` and semantically match the canonical migration. **Migration history:** unrecorded. SSO state was not changed by the Recommendation Generation promotion. It is not established who applied it or how, and this documentation does not claim to know. Migration history reconciliation is a separate, unresolved follow-up: not started, and not the automatic next task. |
+| **Recommendation Generation on TEST** | Migration `20260724130000` is **applied, recorded and verified** on `Digi_SEO_Test` on 2026-09-19 (after its 2026-07-24 rollback). TEST end to end **backend** readiness is confirmed (evidence: `SEO_IMPLEMENTATION_STATUS.md` §5). **Optional live frontend write verification (the Generate button against TEST) was not performed** and is not recorded as done. |
 | **Production** | **No SEO production Supabase project exists / has been identified**, and **no production rollout of any kind has occurred.** |
 
 **Evidence for the above.** The Git facts were verified directly against the
@@ -38,18 +39,13 @@ remote on 2026-09-19 (fresh fetch; ancestry, tree equality and the pushed
 fast-forward all confirmed). At the canonical tip `9cb3676` (verified in a
 clean detached worktree): root `tsc` clean, `npm run build` clean, `vitest`
 **48/48**, crawler-worker suite **74/74**. The TEST facts (ACTIVE_HEALTHY, 40
-recorded migrations, the two unrecorded versions) come from the read-only
-2026-09-19 migration-history audit reported by the operator; the
-documentation-reconciliation task that wrote this section **did not contact
-Supabase**.
+recorded migrations before the promotion) came from the read-only 2026-09-19
+migration-history audit reported by the operator. The TEST state after the 2026-09-19 promotion (41 of 42
+recorded; Recommendation Generation promoted and verified; SSO physically present
+but unrecorded) comes from the promotion's verified execution evidence. The
+documentation tasks that wrote this section **did not contact Supabase**.
 
-**Consequence to keep in mind.** The Stage 2 frontend on `main` calls
-`seo_recommendation_generate`. That RPC does **not** exist on TEST. Deploying
-this frontend to TEST before `20260724130000` is separately approved and
-applied would make the Generate button fail with the generic error message (no
-mock fallback by design — `fallbackToMockOnError:false`); nothing is written and
-the read paths do not depend on the new columns. Applying that migration to TEST
-requires an approval explicitly recorded in the controlling instruction trail.
+**TEST readiness note.** The Stage 2 frontend on `main` calls `seo_recommendation_generate`, which now exists on TEST (migration promoted and verified, backend only). No live browser write through the real UI against TEST has been performed, so frontend to TEST generation has not been observed end to end. Older text elsewhere saying the RPC is absent from TEST, or that 40 migrations are recorded, describes the state before the promotion.
 
 **Historical status headers that this section overrides.** The two **locked**
 evidence records `SEO_RECOMMENDATION_GENERATION_STAGE1_VERIFICATION.md` (header:
@@ -112,14 +108,16 @@ discipline for every task.
   `9cb3676` (now differing from `main` only by documentation files) and carries an
   extra merge commit that is not in `main` (§0). Do not treat
   `release` as canonical, and do not merge or realign it without an explicit task.
-- **Cross-project SSO is intentionally DEFERRED:** migration `20260720121000`
-  (`seo_cross_project_identity_bridge`) is present in the repo but **not recorded
-  on `Digi_SEO_Test`** and must not be applied without a separate, explicit SSO
-  task (`SEO_DECISIONS.md` A14).
-- **Recommendation Generation migration `20260724130000` is likewise not recorded
-  on `Digi_SEO_Test`** (rolled back 2026-07-24 — see §0 and §4). It is committed
-  and locked in Git; its absence from TEST is deliberate and awaits a separately
-  approved decision.
+- **Cross-project SSO remains a deferred, separate concern:** migration `20260720121000`
+  (`seo_cross_project_identity_bridge`) is in the repo. On `Digi_SEO_Test` its objects
+  are **physically present** and semantically match the canonical migration, but it is
+  **unrecorded in migration history** (earlier documents that call it simply "pending" or
+  "unapplied" are superseded on this point). Who applied it and how is not established.
+  Do not alter SSO or repair its history without a separate, explicit SSO task
+  (`SEO_DECISIONS.md` A14).
+- **Recommendation Generation migration `20260724130000` is applied, recorded and
+  verified on `Digi_SEO_Test`** (rolled back 2026-07-24, promoted and verified 2026-09-19; see §0 and
+  `SEO_IMPLEMENTATION_STATUS.md` §5). It is committed and locked in Git.
 - Use normal Git hygiene: branch before non-trivial work; commit/push only when a
   task instructs it.
 
@@ -517,15 +515,12 @@ future planning reference only — it does not reflect production readiness.
 
 ## 8. Current risks
 
-- **Two repository migrations are not recorded on TEST** (§0/§3): the deferred SSO
-  migration `20260720121000` and the Recommendation Generation migration
-  `20260724130000`. Do not let a `supabase db push` apply either as a side effect
-  of an unrelated migration — apply new migrations in isolation + `migration
-  repair`, as done for Competitor Stage 1.
-- **Frontend/TEST skew:** the `main` frontend expects `seo_recommendation_generate`,
-  which TEST lacks (§0). Do not deploy `main` to TEST as a Recommendation
-  Generation acceptance vehicle until `20260724130000` is separately approved and
-  applied.
+- **SSO migration history is unreconciled:** `20260720121000` is physically present on TEST
+  but unrecorded (§0/§3). Do not let a `supabase db push` treat it as unapplied, and do not run
+  `migration repair` for it without a separate, explicit SSO task. Apply new migrations in
+  isolation, as done for Competitor Stage 1 and Recommendation Generation.
+- **Live frontend write verification is outstanding (optional):** the Recommendation Generation
+  backend is verified on TEST, but the Generate button has not been exercised against TEST.
 - **Cloud Run container-runtime verification is still deferred** — do not treat
   the container as production-verified.
 - **No frontend test/lint runner exists** — verification relies on `tsc`/build +
@@ -563,15 +558,17 @@ Stage 1 backend lock's own entry was not edited.
 **There is no pending Git step for Recommendation Generation.** Open decisions
 (each needs its own explicit approval; none has been started):
 
-1. Whether to apply `20260724130000` to `Digi_SEO_Test` (or keep it deliberately
-   absent). Until then, TEST cannot exercise Recommendation Generation.
-2. Whether/how to realign `origin/release` with `main`.
-3. Roadmap Backend implementation — **design only today; nothing is implemented.**
-   The approved architecture is **plans → periods → items** (supersedes the older
+1. Optional live frontend write verification of Recommendation Generation against TEST
+   (not performed).
+2. SSO `20260720121000` migration history reconciliation (physically present, unrecorded):
+   a separate, unresolved follow-up. Not started and not the automatic next task.
+3. Whether/how to realign `origin/release` with `main`.
+4. Roadmap Backend implementation: **design only today; nothing is implemented.**
+   The approved high level hierarchy is **plans → periods → items** (supersedes the older
    flat `seo_roadmap_items` design preserved in `SEO_ROADMAP_BACKEND_ARCHITECTURE.md`).
-   That document's amendment lists what carries over and marks the three-level
-   details **TBD**; a detailed, approved three-level design is needed before any
-   implementation.
+   That document's amendment lists what carries over and marks the three-level details
+   **TBD**; the detailed backend architecture still requires reconstruction and review
+   before any implementation.
 
 Other candidate track (independent of the above):
 
@@ -599,10 +596,8 @@ Other candidate track (independent of the above):
 - **Canonical Git state is `origin/main`** (baseline `9cb3676` + docs-only commits; §0/§3). Do not infer it from
   any clone's local `git status`. Branch before non-trivial work; commit/push only
   when instructed.
-- **Do not apply the deferred SSO migration `20260720121000`** without a separate
-  explicit SSO task; apply new migrations in isolation to avoid pulling it in.
-  **Likewise do not apply `20260724130000`** to TEST without an approval recorded
-  in the controlling instruction trail.
+- **Do not apply, alter or repair the history of SSO migration `20260720121000`** without a
+  separate explicit SSO task; apply new migrations in isolation to avoid pulling it in.
 - **Never treat design/planning documents as implementation authority:**
   `SEO_RECOMMENDATION_GENERATION_ARCHITECTURE.md` (historical design),
   `SEO_ROADMAP_BACKEND_ARCHITECTURE.md` (design only — not implemented),
@@ -669,3 +664,12 @@ labelled a historical ledger; the locked Stage 1/Stage 2 verification records we
 deliberately left unedited; wording about `main`'s tip and `release`'s tree was
 corrected for the docs-only integration. `docs/pages/markdown-index.html` is a
 hand-maintained static page with no generator and remains stale (see the index).
+
+## 14. Recommendation Generation TEST promotion reconciliation (2026-09-19)
+
+Documentation only. Recommendation Generation migration `20260724130000` was promoted to
+`Digi_SEO_Test` and verified on 2026-09-19 (evidence in `SEO_IMPLEMENTATION_STATUS.md` §5). TEST now records
+41 of 42 repository migrations. SSO `20260720121000` is physically present but unrecorded
+(unchanged by the promotion). Historical entries in §4 that say the migration is rolled back
+or that 40 migrations are recorded were accurate when written and are preserved. Roadmap
+Backend remains design only. `CURRENT_PROJECT_STATUS.md` remains a historical ledger.

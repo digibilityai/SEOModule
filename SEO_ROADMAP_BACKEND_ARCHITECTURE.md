@@ -32,8 +32,8 @@
 >
 > **Dependency status:** the on-page-recommendation source (§4.3) is now real —
 > Recommendation Generation Stages 1–2 are locked and on `main` — but that RPC's
-> migration is **not applied to `Digi_SEO_Test`**, so on TEST that source is still
-> empty. Current project state: `SEO_CONTEXT_HANDOVER.md` §0; decision record
+> migration was promoted and verified on `Digi_SEO_Test` on 2026-09-19 (backend only), so on TEST
+> that source is populated once the RPC has been run for a website. Current project state: `SEO_CONTEXT_HANDOVER.md` §0; decision record
 > `SEO_DECISIONS.md` A19; classification in
 > `docs/markdown/PROJECT_DOCUMENTATION_INDEX.md`.
 >
@@ -597,8 +597,8 @@ now locked) → its `seo_audit_issues`.
    this design, but its real output depends on that separate workstream.
    *(Status when written, 2026-07-24: `IMPLEMENTED — NOT YET LOCALLY VERIFIED OR
    ACCEPTED`. **Status 2026-09-19:** Stages 1–2 are complete, accepted, locked and
-   on `main`; the RPC's migration is still not applied to `Digi_SEO_Test`, so this
-   source remains empty on TEST until that is separately approved.)* This design does not
+   on `main`; the RPC's migration was promoted and verified on `Digi_SEO_Test` on 2026-09-19, so this
+   source can be populated on TEST once the RPC has been run for a website.)* This design does not
    attempt to work around that dependency (e.g. by reading `seo_audit_issues`
    a second time under a different label) — it reproduces the mock's actual
    data source faithfully and accepts the resulting temporary gap.

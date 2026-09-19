@@ -8,10 +8,9 @@
 > `20260724130000_seo_recommendation_generate.sql`) and **Stage 2** (frontend
 > integration) are both **complete, accepted and MODULE-LOCKED**, and are in
 > canonical `main` (`9cb3676`). It was verified **locally** (real Docker-based
-> local Supabase stack). **The migration is NOT applied to `Digi_SEO_Test`** — it
-> was applied there out of sequence on 2026-07-24, fully rolled back the same
-> day, and remains unapplied (it is not among the 40 migrations recorded on TEST
-> as of the 2026-09-19 audit). Nothing has been applied to production; no SEO
+> local Supabase stack). **TEST history:** the migration was applied to `Digi_SEO_Test` out of
+> sequence on 2026-07-24 and fully rolled back the same day, then
+> **promoted, recorded and verified on TEST on 2026-09-19** (`SEO_IMPLEMENTATION_STATUS.md` §5). Nothing has been applied to production; no SEO
 > production project exists.
 >
 > **The canonical implementation differs from this design — do not read this

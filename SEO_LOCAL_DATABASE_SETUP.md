@@ -138,10 +138,11 @@ touches the local containerised database.
 ### Baseline rule: the deferred SSO migration
 
 Migration `20260720121000_seo_cross_project_identity_bridge.sql` is
-intentionally deferred / not recorded on `Digi_SEO_Test` (`SEO_DECISIONS.md`
-A14), so **the local baseline must also exclude it**, to match TEST's deferral
-of it. (The other migration TEST lacks, `20260724130000` Recommendation
-Generation, **is** applied locally — local is where that feature is verified.)
+intentionally deferred (`SEO_DECISIONS.md` A14), so **the local baseline excludes it**
+under the SSO deferral. On `Digi_SEO_Test` its objects are physically present but the
+migration is unrecorded in history (2026-09-19), so the local baseline no longer mirrors
+TEST's physical state for SSO. `20260724130000` Recommendation Generation is applied locally
+and is also recorded on TEST.
 
 `supabase start` and `supabase db reset` apply every migration file
 unconditionally — there is no CLI flag to skip one, and because the SSO file

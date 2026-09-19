@@ -15,11 +15,11 @@
 >
 > | Snapshot statement (2026-07-24) | Now (canonical `main` `9cb3676`) |
 > |---|---|
-> | §4.1 / §3 / §8 step 2 — issue → recommendation gap, "P0 — highest", mock-only | **Closed on the mainline.** Recommendation Generation Stage 1 (backend RPC) and Stage 2 (frontend) are complete, locked and on `main`. Caveat: the migration `20260724130000` is **not applied to `Digi_SEO_Test`** (rolled back 2026-07-24), so TEST cannot yet exercise it. |
+> | §4.1 / §3 / §8 step 2 — issue → recommendation gap, "P0 — highest", mock-only | **Closed on the mainline.** Recommendation Generation Stage 1 (backend RPC) and Stage 2 (frontend) are complete, locked and on `main`. The migration `20260724130000` was rolled back on TEST on 2026-07-24 and promoted and verified there on 2026-09-19 (backend only; live frontend write verification not performed). |
 > | §3 — Roadmap backend, P0 | **Still open, not implemented.** Design only (`SEO_ROADMAP_BACKEND_ARCHITECTURE.md`); approved architecture is plans → periods → items (supersedes the flat single-table design; details TBD). The Roadmap frontend is mock-backed only. |
 > | §1/§2.1 — "7 modules formally locked" | 9 registry entries incl. Recommendation Generation Stage 1 and Stage 2 (Competitor Benchmarking was already in the snapshot's 7). |
 > | §1 — 4 frontend Vitest files | 6 files / **48 tests** (Stage 2 added two files, 15 tests); crawler-worker suite 74 tests. |
-> | Migration counts (41 files, 40 on TEST) | **42** files; **40 recorded on TEST**; two not recorded — `20260720121000` SSO (deferred) and `20260724130000` Recommendation Generation (absent after rollback). |
+> | Migration counts (41 files, 40 on TEST) | **42** files; **41 recorded on TEST** (`20260724130000` promoted and verified); SSO `20260720121000` is physically present on TEST but unrecorded in migration history. |
 > | Production / TEST planning "out of scope" | Unchanged: no SEO production project exists; no production rollout has occurred. |
 >
 > Items not listed here (Expert Support backend, placeholder routes, external
