@@ -1232,6 +1232,34 @@ review, commit
 2026-07-24 — the basis for this entry. **Not pushed, not merged to
 `main`.**_
 
+### Reconciliation note (2026-09-19, additive — the entry above is unedited)
+
+_The Stage 2 entry above is a historical lock record, and its wording that
+the branch is "not pushed / not merged to `main`" was true on 2026-07-24 and
+is deliberately left as written. **Current state:** Recommendation Generation
+Stage 2 was subsequently pushed and fast-forwarded into canonical `main` on
+**2026-09-19**. `main` moved `c1de7fe5400d88189d1b826d884ef31779ab2290` →
+`9cb3676e52235a2012a0435ce568c8faab4c4347` as a normal fast-forward (no force,
+no merge commit), adding exactly two commits: `36d32af` (the implementation
+commit named above) and `9cb3676` (this lock's own documentation commit).
+The locked scope, protected contracts, locked files, and evidence bar above
+are unchanged by the merge; the Stage 1 backend lock entry is likewise
+unchanged._
+
+_`origin/release` (`c9d840b7a1b26ff473408e1ccde2b90d52f32966`) had earlier
+received the same Stage 2 work through a merge commit (PR #1). That merge
+commit is **not** part of `main`; the `release` tree and the `main` tree are
+identical (`912308d5f3b8f7423014da4b9ff637f00626a0f7`). `release` was not
+modified by this reconciliation._
+
+_**Deployment caveat that still applies:** the Stage 2 frontend calls
+`seo_recommendation_generate`, whose migration
+(`20260724130000_seo_recommendation_generate.sql`) is **not recorded on
+`Digi_SEO_Test`** (rolled back 2026-07-24; see the Stage 1 entry and
+`SEO_RECOMMENDATION_GENERATION_STAGE1_VERIFICATION.md`). Merging to `main`
+did not change that. See `SEO_CONTEXT_HANDOVER.md` §0 for the current
+authoritative state._
+
 ---
 
 ## Other modules marked locked in `PROJECT_BOOTSTRAP.md`

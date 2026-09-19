@@ -50,8 +50,10 @@ Non-negotiable product rules (from `PROJECT_CONTEXT.md` / `CLAUDE.md`):
   serve the compiled frontend as a static SPA on **Google Cloud Run** (readiness
   prepared; **not deployed, not runtime-verified** — deferred to the TEST
   promotion gate).
-- **TEST Supabase project:** `Digi_SEO_Test` (ref `snyzotgwwfomgafrsvfm`). **All**
-  migrations/verification run here. **Production is a separate, untouched project.**
+- **TEST Supabase project:** `Digi_SEO_Test` (ref `snyzotgwwfomgafrsvfm`). TEST is
+  where migrations/verification are applied once they have passed local
+  verification (`SEO_LOCAL_DATABASE_SETUP.md`). **No SEO production Supabase project
+  exists or has been identified (2026-09-19); production is untouched.**
 - **Reference app (not in this repo):** the existing Digibility app is a
   read-only source of architecture/UI/auth conventions; **must not be modified**;
   future integration target.

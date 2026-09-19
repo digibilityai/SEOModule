@@ -4,17 +4,58 @@
 for, its current accuracy status, which stage/phase it belongs to, and when to
 read it. Maintained per `DOCUMENTATION_WORKFLOW_RULES.md`.
 
-**Location:** all files listed below now live in `docs/markdown/` (same folder
-as this file). Browseable HTML architecture & flow docs: open `docs/index.html`
+**Location:** files in sections A (general), C–E and G live in `docs/markdown/`
+(same folder as this file). **Exceptions at the repo root:** the four-file authority
+package, the §B / §B2 / §B3 documents (`SEO_*.md`, `P1B_*.md`, `COMPETITOR_*.md`,
+`DIGIBILITY_*.md`) and `README.md` / `CLAUDE.md`; root copies of the older
+process docs are redirect stubs. Browseable HTML architecture & flow docs: open `docs/index.html`
 (no server required). Grouped HTML index of these markdown files:
 `docs/pages/markdown-index.html`.
 
-**Last audited:** 2026-07-10 (full documentation audit, end of Phase 14B.2).
-**Consolidation:** 2026-07-19 — markdown moved into `docs/markdown/`; HTML guide added.
+**Last audited / reconciled:** 2026-09-19 — authoritative resynchronisation
+against canonical `main` `9cb3676e52235a2012a0435ce568c8faab4c4347`
+(Recommendation Generation Stages 1–2 locked and merged; Roadmap Backend
+design-only; `Digi_SEO_Test` `ACTIVE_HEALTHY` with 40 of 42 repository migrations
+recorded; no SEO production project). Prior audits: 2026-07-24 (authority package
++ Reports v1 / Competitor consolidation), 2026-07-10 (full audit, end of Phase
+14B.2). **Consolidation:** 2026-07-19 — markdown moved into `docs/markdown/`; HTML
+guide added. Rows in the older sections carry the date of the audit that last
+touched them; the classification below and `SEO_CONTEXT_HANDOVER.md` §0 are what
+say what is authoritative *now*.
 
-> **Read these four first, for every task:** `PROJECT_BOOTSTRAP.md` (single
-> entry point / orientation), `CURRENT_PROJECT_STATUS.md` (the authoritative
-> status), this index, and `DOCUMENTATION_WORKFLOW_RULES.md`.
+## Which documents are authoritative (read this first)
+
+**Authoritative four-file SEO package (repo root; read in this order — see
+`SEO_CONTEXT_HANDOVER.md` §2):**
+
+| File | Classification | Purpose | Status (2026-09-19) |
+| --- | --- | --- | --- |
+| `SEO_CONTEXT_HANDOVER.md` | **AUTHORITY** — entry point | Primary entry point for any new ChatGPT/Claude thread: **§0 is the single current-state table** (canonical `main`, lock state, TEST/production state), then reading order, risks, exact next step. | **reconciled 2026-09-19** |
+| `SEO_IMPLEMENTATION_STATUS.md` | **AUTHORITY** | Concise current implementation + lock + TEST/production state (§0 current state; §1 per-module rows with dated history). | **reconciled 2026-09-19** |
+| `SEO_PROJECT_CONTEXT.md` | **AUTHORITY** (stable reference) | Product + architecture + conventions; changes rarely; carries no live status. | current (2026-09-19: one production-wording correction — no SEO production project exists) |
+| `SEO_DECISIONS.md` | **AUTHORITY** | Confirmed architecture/security/process decisions + rejected/superseded alternatives (A1–A20). | **reconciled 2026-09-19** (A14 note, A18 supersession, new A19/A20) |
+
+**Plus one authority for change control:** `docs/markdown/MODULE_LOCKS.md` — the
+per-module lock registry (the repo-root `MODULE_LOCKS.md` is a 3-line redirect stub,
+**not** authority). Historical locked entries are never rewritten; changes are
+recorded as dated additive notes.
+
+**Classification legend** (used in this index):
+- **AUTHORITY** — defines current state/decisions/locks; keep in sync.
+- **CURRENT DESIGN** — the live design for work not yet built. *Not* implementation.
+- **HISTORICAL DESIGN** — a pre-implementation design of something now built; the
+  implementation may differ.
+- **PLANNING / REFERENCE** — plans, roadmaps, snapshots; never authoritative for status.
+- **VERIFICATION** — evidence records for accepted/locked work.
+- **OPERATIONAL SETUP** — how-to procedures.
+- **HISTORICAL LEDGER / SUPERSEDED** — retained for history; do not read as current state.
+- **reference** — product/spec/instruction docs with no status claims.
+
+> **Orientation and process (read alongside the authority package):**
+> `PROJECT_BOOTSTRAP.md`, this index, and `DOCUMENTATION_WORKFLOW_RULES.md`.
+> `CURRENT_PROJECT_STATUS.md` is the **detailed historical status ledger** (its
+> newest entry is dated 2026-07-21; it predates Competitor Benchmarking and
+> Recommendation Generation) — use it for history, **not** for current state.
 
 **Status legend:**
 - **current** — accurate, no change needed in this audit.
@@ -32,7 +73,7 @@ as this file). Browseable HTML architecture & flow docs: open `docs/index.html`
 | --- | --- | --- | --- |
 | `PROJECT_BOOTSTRAP.md` | Single entry point for any new AI session — project overview, repo rules, mandatory reading order, locked architectural decisions, module map, module completion/lock rules, AI working agreement, bootstrap prompt. | **new** | **Every task, first** |
 | `CHATGPT_CONTEXT_HANDOVER.md` | Compact, self-contained handover for a fresh **ChatGPT oversight thread** — product/repo overview, architecture + BFF boundaries (no-BFF Supabase-direct; crawler worker = trusted-server exception; parent-platform BFF deferred), backward-compat, source-of-truth hierarchy, dev plan/phase, locked modules, **latest P1a state (Step 2.8 PASS; final `idle→in_flight→cooldown→idle` guard; A3 + revoke cleanup done; Step 2B/3 SQL unblocked-not-rerun; two operator items pending; not locked)**, accepted/rejected decisions, blockers, exact next step, the ChatGPT↔Claude protocol + Claude model-selection protocol, and the minimum upload set. | **new** (2026-07-17) | Handing the project to a new ChatGPT thread |
-| `MODULE_LOCKS.md` | Authoritative per-module lock registry — locked file lists, allowed/not-allowed changes, evidence bar required before modifying a locked module. Now includes **"Stage 6 — Off-Page Authority Workflows and AI Visibility Reads"** (LOCKED 2026-07-13, implemented scope only; deferred Stage 6 work explicitly kept UNLOCKED for additive extension) alongside the pre-existing Page Performance Tracker lock. Also locked: Crawler 16C–16H (2026-07-15), P1a Domain Ownership Verification (2026-07-19), P1b Verified-only Crawl Enqueue Enforcement (2026-07-19), Reports v1 — persisted read + guarded generation + PDF export, Stages 1–3 (2026-07-20), Competitor Benchmarking — persisted read + guarded generation + frontend integration, Stages 1–2 (2026-07-24), Recommendation Generation — Stage 1 backend only, additive schema + guarded generation RPC (2026-07-24), and Recommendation Generation — Stage 2 frontend integration (2026-07-24; committed on `feat/seo-recommendation-generate-stage2`, not yet pushed/merged; the Stage 1 entry above is separate and unedited). This file (`docs/markdown/MODULE_LOCKS.md`) is the authoritative registry; the repo-root `MODULE_LOCKS.md` is a redirect stub. (The P1a/P1b entries, dropped during the SSO doc relocation, were restored verbatim from `git show 2b9537b:MODULE_LOCKS.md` on 2026-07-20.) | **updated** (2026-07-24 — Recommendation Generation Stage 2 lock added) | Before modifying any file belonging to a listed module |
+| `MODULE_LOCKS.md` | Authoritative per-module lock registry — locked file lists, allowed/not-allowed changes, evidence bar required before modifying a locked module. Now includes **"Stage 6 — Off-Page Authority Workflows and AI Visibility Reads"** (LOCKED 2026-07-13, implemented scope only; deferred Stage 6 work explicitly kept UNLOCKED for additive extension) alongside the pre-existing Page Performance Tracker lock. Also locked: Crawler 16C–16H (2026-07-15), P1a Domain Ownership Verification (2026-07-19), P1b Verified-only Crawl Enqueue Enforcement (2026-07-19), Reports v1 — persisted read + guarded generation + PDF export, Stages 1–3 (2026-07-20), Competitor Benchmarking — persisted read + guarded generation + frontend integration, Stages 1–2 (2026-07-24), Recommendation Generation — Stage 1 backend only, additive schema + guarded generation RPC (2026-07-24), and Recommendation Generation — Stage 2 frontend integration (2026-07-24; merged into canonical `main` at `9cb3676` on 2026-09-19 — recorded as an additive reconciliation note; the Stage 1 entry above is separate and unedited). This file (`docs/markdown/MODULE_LOCKS.md`) is the authoritative registry; the repo-root `MODULE_LOCKS.md` is a redirect stub. (The P1a/P1b entries, dropped during the SSO doc relocation, were restored verbatim from `git show 2b9537b:MODULE_LOCKS.md` on 2026-07-20.) | **AUTHORITY** (lock registry) · **updated** (2026-09-19 — additive reconciliation note for Stage 2 merge; no historical entry rewritten) | Before modifying any file belonging to a listed module |
 | `CURRENT_PROJECT_STATUS.md` | Authoritative one-page current status (backend/wiring/seed/live-test/production/limitations/next step). | **new** | **Every task** |
 | `PROJECT_DOCUMENTATION_INDEX.md` | This map of all docs. | **new** | **Every task** |
 | `DOCUMENTATION_WORKFLOW_RULES.md` | Preflight + docs-sync rules for all future tasks. | **new** | **Every task** |
@@ -49,9 +90,43 @@ as this file). Browseable HTML architecture & flow docs: open `docs/index.html`
 | --- | --- | --- | --- | --- |
 | `BACKEND_MILESTONE_HANDOFF.md` | Single-file backend status handoff + production gating checklist (§5). | Stages 1–5 | **stale-fixed** (Exec summary/§9/§10/§13 reconciled to Stage 5 + wiring done) | Backend / production |
 | `SUPABASE_BACKEND_ARCHITECTURE_PLAN.md` | Overall backend architecture/design plan. | All | **current** (planning doc) | Backend design |
-| `SEO_RECOMMENDATION_GENERATION_STAGE1_VERIFICATION.md` | Recommendation Generation Stage 1 (backend only) — guarded generation RPC design, SQL verification, local-database verification, concurrency proof, acceptance + lock evidence. | Recommendation Generation Stage 1 | **current** | Before touching `seo_recommendation_generate` or its migration |
-| `SEO_RECOMMENDATION_GENERATION_STAGE2_VERIFICATION.md` | Recommendation Generation Stage 2 (frontend integration) — current-flow findings, service/UI integration, role verification (incl. a direct backend-bypass proof), state/downstream verification, unit tests, local database verification (incl. a base-table-GRANT local-environment gap reproduced from a clean reset), live loading-state and no-eligible-findings browser proofs, quality checks. Status: `ACCEPTED — COMMITTED — PENDING PUSH/MERGE`; committed as `36d32af2a3841267d19a7911ad7e693e6e10f81d` on `feat/seo-recommendation-generate-stage2`; formally MODULE-LOCKED (`docs/markdown/MODULE_LOCKS.md`); not yet pushed or merged to `main`. | Recommendation Generation Stage 2 | **updated** (2026-07-24 — formal acceptance + commit + lock) | Before modifying any file belonging to the locked Recommendation Generation Stage 2 scope |
-| `SEO_LOCAL_DATABASE_SETUP.md` | Reproducible local Docker-based Supabase CLI setup procedure: prerequisites, `supabase init`/reattach, startup/shutdown, deferred-SSO-safe reset, the base-table-privilege bootstrap requirement (local-CLI-only, not a migration defect) + its script (`supabase/test/local_supabase_privilege_bootstrap.sql`), isolation checks, fixture-user creation, browser-verification runtime-config pattern, verification-script execution, two-session concurrency method, cleanup, and commands that must never be run against a linked project. Supersedes prior informal references to a same-named file that had never actually been committed to the repository. | Cross-cutting (local backend verification) | **new** (2026-07-24) | Before any local-database-backed verification task in this repo |
+| `SEO_RECOMMENDATION_GENERATION_STAGE1_VERIFICATION.md` | **VERIFICATION.** Recommendation Generation Stage 1 (backend only) — guarded generation RPC design, SQL verification, local-database verification, concurrency proof, TEST rollback record (§4), acceptance + lock evidence. | Recommendation Generation Stage 1 | **current** | Before touching `seo_recommendation_generate` or its migration |
+| `SEO_RECOMMENDATION_GENERATION_STAGE2_VERIFICATION.md` | **VERIFICATION.** Recommendation Generation Stage 2 (frontend integration) — current-flow findings, service/UI integration, role verification (incl. a direct backend-bypass proof), state/downstream verification, unit tests, local database verification (incl. a base-table-GRANT local-environment gap reproduced from a clean reset), live loading-state and no-eligible-findings browser proofs, quality checks. Historical status line inside: `ACCEPTED — COMMITTED — PENDING PUSH/MERGE` (2026-07-24). **Current status: ACCEPTED, MODULE-LOCKED and merged into canonical `main` at `9cb3676` (2026-09-19).** | Recommendation Generation Stage 2 | **current** (evidence record; its "not yet pushed" wording is historical) | Before modifying any file belonging to the locked Recommendation Generation Stage 2 scope |
+| `SEO_LOCAL_DATABASE_SETUP.md` | **OPERATIONAL SETUP.** Reproducible local Docker-based Supabase CLI procedure (§1–§13): prerequisites + why bare Homebrew Postgres is unsafe, `supabase init`/reattach, startup/ports, the **"Baseline rule: the deferred SSO migration"** reset, the base-table-privilege bootstrap (`supabase/test/local_supabase_privilege_bootstrap.sql`), isolation checks, fixture-user creation + the shared fixture UUIDs the test scripts require, browser runtime-config pattern, verification-script execution, two-session concurrency method, cleanup, the never-run-against-linked list, and troubleshooting. | Cross-cutting (local backend verification) | **updated** (2026-09-19 — reconciled with the earlier local version; commands last executed 2026-07-24) | Before any local-database-backed verification task in this repo |
+
+---
+
+## B2. Design, planning and historical-design documents (added 2026-09-19) — NOT implementation authority
+
+All four live at the repo root and carry a banner at the top stating their
+classification. None of them may be used to answer "what is built / applied /
+locked?" — use the authority package above.
+
+| File | Classification | What it is | Current truth to keep in mind |
+| --- | --- | --- | --- |
+| `SEO_ROADMAP_BACKEND_ARCHITECTURE.md` | **CURRENT DESIGN — DESIGN ONLY, NOT IMPLEMENTED** | Architecture design for a persisted 90-day Roadmap: one table `seo_roadmap_items`, one guarded RPC `seo_roadmap_generate`, read-path wiring, replace-to-match generation. | **No Roadmap migration/RPC/table/Supabase service exists in canonical Git;** `/seo/roadmap` is mock-only. Not started, not approved. The document specifies a single table — **not** a plans → periods → items hierarchy. See `SEO_DECISIONS.md` A19. |
+| `SEO_RECOMMENDATION_GENERATION_ARCHITECTURE.md` | **HISTORICAL DESIGN** | The pre-implementation design of Recommendation Generation (2026-07-24). | Implemented, locked and on `main` — **but the shipped RPC differs** (`RETURNS SETOF seo_recommendations`, not `integer`; on-page templates always generated). Migration `20260724130000` is **not applied to TEST**. Authority: the migration file + the two verification docs + `SEO_DECISIONS.md` A17/A18. |
+| `SEO_RELEASE_ROADMAP.md` | **PLANNING / REFERENCE** (2026-07-24 snapshot) | Path-to-Release-Candidate analysis: modules done/remaining, cross-module gaps, execution order, RC checklist. | Its "authoritative" self-description is **withdrawn**. The §4.1 issue→recommendation gap it names is closed on `main`; Roadmap backend is still open. Banner lists the factual deltas. |
+| `SEO_PRODUCTION_PROMOTION_PLAN.md` | **PLANNING / REFERENCE** (future) | Planning-only reference for an eventual production promotion (deployment order, migration plan, rollback, smoke tests, go/no-go). | **Not a statement of production readiness.** No SEO production Supabase project exists; no production rollout has occurred. Repo has 42 migrations; TEST records 40; two unrecorded (SSO deferred; Recommendation Generation absent after rollback). |
+
+---
+
+## B3. Repo-root documents not previously indexed (added 2026-09-19)
+
+Listed so every tracked root-level `*.md` has a classification. Descriptions are
+taken from each file's own role and from the authority package; statuses are the
+authority package's, not new claims.
+
+| File(s) | Classification | Notes |
+| --- | --- | --- |
+| `P1B_VERIFIED_ONLY_CRAWL_ENQUEUE_SIGNOFF.md`, `P1B_CONCURRENCY_VERIFICATION_GUIDE.md` | **VERIFICATION** | P1b (verified-only crawl enqueue) sign-off and the live two-session `FOR SHARE` concurrency guide. P1b is complete + locked. |
+| `P1B_VERIFIED_ONLY_CRAWL_ENQUEUE_PLAN.md` | **HISTORICAL** (plan) | P1b plan; its pre-execution "implementation-artifacts note" is labelled SUPERSEDED (`SEO_DECISIONS.md` R7). |
+| `COMPETITOR_STAGE2A_CONCURRENCY_VERIFICATION.md` | **VERIFICATION** | Competitor Benchmarking Stage 2A true two-session advisory-lock evidence (module locked). |
+| `DIGIBILITY_FRONTEND_CLOUD_RUN_DEPLOYMENT_READINESS.md` | **PLANNING / REFERENCE** (operational) | Cloud Run frontend container readiness — prepared and statically verified; **not deployed, not runtime-verified.** |
+| `DIGIBILITY_SEO_COLLAPSIBLE_NAVIGATION_INFORMATION_ARCHITECTURE.md` | **reference** (implemented IA record) | Collapsible SEO navigation IA (implemented; not locked). |
+| `DIGIBILITY_SEO_HELP_CENTER_*.md` (8 files: product spec, information architecture, implementation plan, Slice 1, Slice 1A, Waves 2B / 2C / 3) | **reference** (product spec + implementation records) | Help Center is development-complete (frontend, not locked). |
+| `DIGIBILITY_SEO_CONTEXTUAL_HELP_MAPPING.md`, `DIGIBILITY_SEO_END_TO_END_USER_JOURNEY_AND_SUPPORT_BLUEPRINT.md`, `DIGIBILITY_SEO_SUPPORT_CONTENT_PRODUCTION_MATRIX.md` | **reference** / **PLANNING** | Contextual-help mapping, user-journey/support blueprint, support-content matrix. |
+| `CLAUDE.md`, `README.md`, `PROJECT_CONTEXT.md` (root stub), `PROJECT_BOOTSTRAP.md` (root stub), `CURRENT_PROJECT_STATUS.md` (root stub), `PROJECT_DOCUMENTATION_INDEX.md` (root stub), `DOCUMENTATION_WORKFLOW_RULES.md` (root stub), `MODULE_LOCKS.md` (root stub) | see §A | Root redirect stubs point to `docs/markdown/`; **the stubs are not authority**. |
 
 ---
 
@@ -110,7 +185,7 @@ as this file). Browseable HTML architecture & flow docs: open `docs/index.html`
 | `ADR_CUSTOMER_AUTHENTICATION_FOR_MVP.md` | Architecture decision (Phase 16A): customer auth + route protection. Decision = **Option C hybrid** (standalone Supabase Auth for MVP + future parent-identity adapter seam); parent-SSO rejected for MVP (unconfirmed contract). Includes the full route-protection behavioural contract (auth/no-module-access/no-workspace/no-active-website/loading/redirect/deep-link/mock-mode/admin-preview) with RLS remaining authoritative. | 16A (architecture) | **new** — proposed; awaiting approval; no implementation |
 | `CROSS_PROJECT_SSO_IMPLEMENTATION.md` | Production integration design + source implementation record for Digibility-only login with a separate SEO Supabase project: entitlement model, one-time-code Edge bridge, same-UUID SEO Auth provisioning, downstream session exchange, files, secrets, deployment order, **localhost verification**, linked logout, security invariants, local unit/build evidence, and pending live acceptance matrix. | Cross-project auth | **updated** (2026-07-21) — linked logout + localhost; still not applied/deployed/live-tested; production untouched |
 | `GCP_TEST_SSO_DEPLOY.md` | Operator runbook to deploy SSO on GCP TEST: Supabase migrations + `seo-bridge`, Artifact Registry/Secret Manager, SEO Cloud Run (`digi-seo-frontend-test`), Digibility `SEO_APP_URL` wiring, acceptance checklist. Uses `.ai` hosts. | Deploy / GCP | **new** (2026-07-21) — scaffolding ready; operator must run GCP/Supabase steps |
-| `SEO_SUPABASE_FRESH_TEST_SETUP.md` | Create a brand-new dedicated SEO Supabase TEST project from scratch: Auth URL settings, full migration apply order (39 files ending in identity bridge), structural check, `.env` / secret handoff. | Deploy / Supabase | **new** (2026-07-21) |
+| `SEO_SUPABASE_FRESH_TEST_SETUP.md` | Create a brand-new dedicated SEO Supabase TEST project from scratch: Auth URL settings, full migration apply order (39 files ending in identity bridge), structural check, `.env` / secret handoff. | Deploy / Supabase | **new** (2026-07-21) — **OPERATIONAL SETUP**; the "39 files" count is as of authoring, the repo now has **42** migrations (TEST records 40) |
 | `ADR_CRAWLER_RUNTIME_ARCHITECTURE.md` | Architecture decision (Phase 16A): crawler runtime. Decision = **Option C hybrid** (guarded enqueue RPC/thin Edge Function control plane + dedicated service-role background worker; RLS-scoped reads; no BFF). Includes SSRF/robots/budget security, existing-table classification + additive `seo_crawl_jobs`, crawl lifecycle layer-ownership, failure/retry model, subscription/usage (schema-only today), and locked-module boundaries. | 16A (architecture) | **new** — proposed; awaiting approval; no implementation |
 | `CRAWLER_PHASE_1_IMPLEMENTATION_PLAN.md` | Dependency-ordered crawler Phase-1 build plan (12 phases: auth+route-protection → job contract → guarded enqueue → worker → URL safety → discovery → extraction → issues → audit/inventory integration → frontend status → verification → GSC next), each with objective/layer/files/DB/API/frontend/permission/backward-compat/tests/migration/rollback/locked-modules; exact next task = customer auth + route protection. | 16A (architecture) | **new** — planning only; awaiting approval; no implementation |
 | `PHASE_16B_CUSTOMER_AUTH_ROUTE_PROTECTION_SIGNOFF.md` | Sign-off for customer authentication + `/seo/*` route protection (login-only): approved hybrid architecture, route classification (public/dev-only/setup/website-scoped/admin), centralized `useSeoAccess()` session-resolution design, module-access + workspace/website prerequisite behaviour, safe deep-link restoration, customer sign-out + cross-user cleanup, mock-mode bypass, `seo_is_global_admin`-gated admin-preview, static + browser tests (owner/client/anonymous/admin-preview/mock), known limitations (global-admin-allow + setup states code-covered not live-tested; no unit framework), files changed, no DB/API change, backward compatibility, production untouched. | 16B (auth) | **new** — implemented + TEST-validated; RLS-authoritative; no migration/RPC/RLS change; auth NOT module-locked; next = Crawler Phase 1 |
@@ -167,23 +242,36 @@ as this file). Browseable HTML architecture & flow docs: open `docs/index.html`
 
 ## F. Source-of-truth precedence
 
-If two documents disagree about **status**, precedence is:
+**For current project state** (what is built, locked, and applied where), as of
+2026-09-19:
 
-1. `CURRENT_PROJECT_STATUS.md`
-2. `BACKEND_MILESTONE_HANDOFF.md` (backend) / `SERVICE_LAYER_WIRING_PLAN.md` (wiring)
-3. The relevant per-stage `_NOTES.md` verification checkpoint
-4. Everything else (plans, guides, historical phase notes)
+1. `SEO_CONTEXT_HANDOVER.md` §0 and `SEO_IMPLEMENTATION_STATUS.md` §0 — the
+   reconciled current state.
+2. `docs/markdown/MODULE_LOCKS.md` (lock scope / change control) and
+   `SEO_DECISIONS.md` (decisions).
+3. The per-module sign-off / verification documents (evidence).
+4. `CURRENT_PROJECT_STATUS.md` — detailed **historical** ledger (newest entry
+   2026-07-21); consult for history only.
+5. Design / planning / historical-design documents (§B2) and everything else —
+   **never authoritative for status.**
 
-A historical phase note describing "what that phase did" is not a status
-conflict — it is a record; treat superseding forward-references as authoritative
-for *current* status.
+A dated historical statement ("not pushed", "pending merge", "only pending
+migration", an old HEAD) inside a lock entry, verification record or amendment is
+a *record of what was true that day*, not a status conflict — the current
+authority docs win.
+
+**Legacy precedence (2026-07-10 audit; retained for the Stage 1–6 wiring
+history):** `CURRENT_PROJECT_STATUS.md` → `BACKEND_MILESTONE_HANDOFF.md` (backend)
+/ `SERVICE_LAYER_WIRING_PLAN.md` (wiring) → the relevant per-stage `_NOTES.md` →
+everything else.
 
 ---
 
 ## G. Not documentation (do not treat as docs)
 
-`supabase/migrations/*.sql`, `supabase/test/*.sql` (seeds + smoke tests),
-`src/**`, config files, `node_modules/`, `dist/` — these are code/data. Read
+`supabase/migrations/*.sql` (42 files), `supabase/test/*.sql` (seeds + smoke tests),
+`src/**`, config files, tracked `*.bak` snapshot files, `node_modules/`, `dist/` — these
+are code/data. Read
 their in-file header comments when a task touches them, but they are not part of
 this documentation index and are governed by the "hard prohibitions" in
 `DOCUMENTATION_WORKFLOW_RULES.md` §7.

@@ -6,7 +6,12 @@ contradicted decisions appear **only** in §9 ("Rejected or superseded"). Full
 narrative rationale lives in the retained ADRs (`ADR_CRAWLER_RUNTIME_ARCHITECTURE.md`,
 `ADR_CUSTOMER_AUTHENTICATION_FOR_MVP.md`) and per-module sign-offs.
 
-**Created:** 2026-07-20. Dates given where known.
+**Created:** 2026-07-20. **Last reconciled:** 2026-09-19 against canonical `main`
+`9cb3676e52235a2012a0435ce568c8faab4c4347`. Dates given where known. Decision
+entries (esp. A17/A18) contain dated amendments that record what was true on the
+day; where an amendment says "not pushed / pending merge", the 2026-09-19
+reconciliation notes (A18 tail, L1) and `SEO_CONTEXT_HANDOVER.md` §0 give the
+current state.
 
 ---
 
@@ -121,6 +126,12 @@ narrative rationale lives in the retained ADRs (`ADR_CRAWLER_RUNTIME_ARCHITECTUR
   migrations are applied in isolation (`db query -f`) then recorded via
   `supabase migration repair`, keeping `20260720121000` pending and untouched
   (as done for Competitor Stage 1). (2026-07-24.)
+  **Reconciliation (2026-09-19):** as of the 2026-09-19 audit, SSO is one of
+  **two** repository migrations not recorded on `Digi_SEO_Test` (40 recorded of
+  42 in the repo); the other is `20260724130000` Recommendation Generation, which
+  is *deliberately absent after its documented rollback* — not a "pending
+  deferral" of the same kind. Both must be applied only in isolation and only on
+  explicit approval. The SSO decision itself is unchanged.
 - **A15. Competitor generation = server-side authoritative heuristic via a guarded
   RPC** (Competitor Stage 2A, migration `20260724120040`).
   `public.seo_competitor_generate(p_website_id uuid) RETURNS integer` is
@@ -554,10 +565,39 @@ narrative rationale lives in the retained ADRs (`ADR_CRAWLER_RUNTIME_ARCHITECTUR
     `SEO_CONTEXT_HANDOVER.md`, and
     `docs/markdown/PROJECT_DOCUMENTATION_INDEX.md`. **The separate Stage 1
     backend lock entry was not edited and remains exactly as it was.**
-  - **Corrected current status: `ACCEPTED — COMMITTED — PENDING
-    PUSH/MERGE`.** This branch is **committed locally only** — it has not
-    been pushed to `origin` and has not been merged to `main`. Push/merge
-    is a separate, explicitly-approved future step.)
+  - **Status on 2026-07-24 (historical): `ACCEPTED — COMMITTED — PENDING
+    PUSH/MERGE`** — the branch was committed locally only at that time.)
+  - **Reconciliation (2026-09-19, additive — supersedes the status line
+    above):** Stage 2 was pushed and **fast-forwarded into canonical `main`**
+    (`c1de7fe` → `9cb3676`; commits `36d32af` + `9cb3676`; no force, no merge
+    commit). Current status: `ACCEPTED — MODULE-LOCKED — MERGED TO CANONICAL
+    main`. The Stage 1 lock is unchanged. `origin/release` (`c9d840b`, a merge
+    commit not in `main`) is tree-identical to `main` and was left untouched.
+    **TEST caveat unchanged:** the frontend expects `seo_recommendation_generate`,
+    whose migration `20260724130000` is not recorded on `Digi_SEO_Test`.
+
+- **A19. Roadmap Backend is DESIGN ONLY — not implemented, not started
+  (status decision recorded 2026-09-19).** The sole artefact is
+  `SEO_ROADMAP_BACKEND_ARCHITECTURE.md`. Canonical Git contains **no** Roadmap
+  migration, RPC, table or Supabase service; `roadmapService.ts` dispatches
+  straight to mock data in every data mode, and the locked
+  `seo_report_generate` RPC truthfully reports `roadmap` as `unavailable`.
+  Implementation requires a separate, explicitly-approved task that follows the
+  standard sequence (architecture → Stage 1 backend → Stage 2 frontend →
+  verification → lock decision). **Open design question:** the surviving design
+  document specifies **one** table (`seo_roadmap_items`) and **one** guarded RPC
+  (`seo_roadmap_generate`); it does **not** specify a plans → periods → items
+  hierarchy. If a multi-level model is wanted, the design must be revised and
+  re-approved before any implementation.
+- **A20. Design, planning and historical documents are never implementation
+  authority (recorded 2026-09-19).** `SEO_RECOMMENDATION_GENERATION_ARCHITECTURE.md`
+  (historical design — the implemented RPC returns `SETOF seo_recommendations`,
+  the design said `integer`), `SEO_ROADMAP_BACKEND_ARCHITECTURE.md` (design only),
+  `SEO_RELEASE_ROADMAP.md` (planning snapshot dated 2026-07-24) and
+  `SEO_PRODUCTION_PROMOTION_PLAN.md` (future planning reference; no SEO
+  production project exists) each carry a banner saying so. Current status lives
+  only in the four-file authority package
+  (`docs/markdown/PROJECT_DOCUMENTATION_INDEX.md` classifies every file).
 
 ## 2. Security & concurrency decisions (current)
 
@@ -615,9 +655,9 @@ narrative rationale lives in the retained ADRs (`ADR_CRAWLER_RUNTIME_ARCHITECTUR
   Benchmarking (persisted read + guarded generation + frontend integration,
   Stages 1–2; LOCKED 2026-07-24)**; **Recommendation Generation — Stage 1
   backend only (LOCKED 2026-07-24)**; **Recommendation Generation — Stage 2
-  frontend integration (LOCKED 2026-07-24; committed on
-  `feat/seo-recommendation-generate-stage2`, not yet pushed/merged; Stage 1's
-  own lock entry is separate and unedited)** (all in `MODULE_LOCKS.md`).
+  frontend integration (LOCKED 2026-07-24; merged into canonical `main` at
+  `9cb3676` on 2026-09-19; Stage 1's own lock entry is separate and
+  unedited)** (all in `MODULE_LOCKS.md`).
 - **L2.** Any change to a locked file/contract requires that lock's
   **additive-extension + evidence procedure** (reproduction or additive spec →
   expected/actual → evidence → additive-only design → **explicit approval** →
@@ -630,7 +670,9 @@ narrative rationale lives in the retained ADRs (`ADR_CRAWLER_RUNTIME_ARCHITECTUR
 ## 6. Production-promotion rules (current)
 
 - **P1. Production stays untouched** until a separately-approved promotion task
-  satisfies the `BACKEND_MILESTONE_HANDOFF.md` §5 gates.
+  satisfies the `BACKEND_MILESTONE_HANDOFF.md` §5 gates. (State on 2026-09-19: no
+  SEO production Supabase project exists or has been identified; no production
+  rollout has occurred.)
 - **P2. Promotion is planned first** (planning-only doc, no DB action), then
   approved, then applied with a migration order + rollback plan, then verified,
   then signed off — mirroring the TEST plan→apply→verify→sign-off pattern.

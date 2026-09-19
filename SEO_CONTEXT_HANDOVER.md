@@ -5,8 +5,57 @@ follow the reading order in §2. It supersedes `CHATGPT_CONTEXT_HANDOVER.md` and
 the general handover role of `BACKEND_MILESTONE_HANDOFF.md` (both retained as
 historical — see `PROJECT_DOCUMENTATION_INDEX.md`).
 
-**Created / last reconciled:** 2026-07-24 (documentation consolidation after
-Reports v1 lock + Competitor Benchmarking Stage 1 commit/push).
+**Created:** 2026-07-20. **Last reconciled:** 2026-09-19 (authoritative
+resynchronisation against canonical `main` `9cb3676` — see §0). The
+2026-07-24 consolidation and every dated "Latest activity" entry in §4 are
+retained as a chronological record; where they conflict with §0, §0 wins.
+
+---
+
+## 0. CURRENT AUTHORITATIVE STATE (reconciled 2026-09-19) — read this first
+
+> **This section overrides any older wording** — in this file, in the rest of
+> the authority package, and in per-feature verification/lock records — that
+> calls Recommendation Generation Stage 2 "not pushed" / "not merged", names an
+> older HEAD, or calls the working tree clean. Those statements were true when
+> they were written and are kept as history; the table below is true now.
+
+| Item | Current state |
+|---|---|
+| **Canonical `main`** | `9cb3676e52235a2012a0435ce568c8faab4c4347` (`docs(seo): accept and lock recommendation generation stage 2`). Fast-forwarded from `c1de7fe5400d88189d1b826d884ef31779ab2290` on 2026-09-19 (normal fast-forward push; no force, no merge commit). |
+| **Commits Stage 2 added to `main`** | Exactly two, linear: `36d32af2a3841267d19a7911ad7e693e6e10f81d` (`feat(seo): integrate recommendation generation workflow`) then `9cb3676` (`docs(seo): accept and lock recommendation generation stage 2`). |
+| **`origin/release`** | `c9d840b7a1b26ff473408e1ccde2b90d52f32966` — a merge commit (PR #1) that brought the Stage 2 branch into `release`. It is **not** in `main`. Its tree is identical to `main`'s (tree `912308d5f3b8f7423014da4b9ff637f00626a0f7`). `release` was not modified. |
+| **Recommendation Generation Stage 1 (backend)** | **Complete, accepted, MODULE-LOCKED**, on `main` (`808d54d`, `e7b1fbe`, `c1de7fe`). |
+| **Recommendation Generation Stage 2 (frontend integration)** | **Complete, accepted, MODULE-LOCKED, and merged into canonical `main`** at `9cb3676`. |
+| **Roadmap Backend** | **DESIGN ONLY — NOT IMPLEMENTED.** The only artefact is the design document `SEO_ROADMAP_BACKEND_ARCHITECTURE.md`. **No Roadmap migration, RPC, table, or Supabase service exists in canonical Git.** The existing `/seo/roadmap` page and `roadmapService.ts` are **mock-data only** (no `runWithServiceAdapter`, no Supabase call) in every data mode. |
+| **`Digi_SEO_Test` (TEST)** | Restored and **`ACTIVE_HEALTHY`**. **40 migrations recorded**, the latest being `20260724120040`. |
+| **Repository migrations** | **42** files in `supabase/migrations/`. |
+| **Repo migrations NOT recorded on TEST** | (1) `20260720121000` — cross-project SSO identity bridge, **deliberately deferred** (`SEO_DECISIONS.md` A14). (2) `20260724130000` — Recommendation Generation, **deliberately absent after its documented 2026-07-24 rollback** (§4 environment-control reconciliation; `SEO_RECOMMENDATION_GENERATION_STAGE1_VERIFICATION.md` §4). |
+| **Production** | **No SEO production Supabase project exists / has been identified**, and **no production rollout of any kind has occurred.** |
+
+**Evidence for the above.** The Git facts were verified directly against the
+remote on 2026-09-19 (fresh fetch; ancestry, tree equality and the pushed
+fast-forward all confirmed). At the canonical tip `9cb3676` (verified in a
+clean detached worktree): root `tsc` clean, `npm run build` clean, `vitest`
+**48/48**, crawler-worker suite **74/74**. The TEST facts (ACTIVE_HEALTHY, 40
+recorded migrations, the two unrecorded versions) come from the read-only
+2026-09-19 migration-history audit reported by the operator; the
+documentation-reconciliation task that wrote this section **did not contact
+Supabase**.
+
+**Consequence to keep in mind.** The Stage 2 frontend on `main` calls
+`seo_recommendation_generate`. That RPC does **not** exist on TEST. Deploying
+this frontend to TEST before `20260724130000` is separately approved and
+applied would make the Generate button fail with the generic error message (no
+mock fallback by design — `fallbackToMockOnError:false`); nothing is written and
+the read paths do not depend on the new columns. Applying that migration to TEST
+requires an approval explicitly recorded in the controlling instruction trail.
+
+**Which documents are authoritative vs. historical/planning** is defined in
+`docs/markdown/PROJECT_DOCUMENTATION_INDEX.md` (classification column). In
+short: the four files named in §2 are authority; the Recommendation Generation
+and Roadmap architecture documents, the release roadmap and the production
+promotion plan are **design / planning / reference only**.
 
 ---
 
@@ -18,7 +67,8 @@ no BFF server — plus an isolated service-role `crawler-worker`). It converts S
 insights into approvable actions and is built to later plug into the existing
 Digibility platform. Permanent mock mode (`VITE_SEO_DATA_MODE`) mirrors every
 service. TEST project = `Digi_SEO_Test` (ref `snyzotgwwfomgafrsvfm`);
-**production is separate and untouched.** Full product/architecture detail:
+**no SEO production Supabase project exists or has been identified, and no
+production rollout has occurred.** Full product/architecture detail:
 `SEO_PROJECT_CONTEXT.md`.
 
 ## 2. Authoritative-document reading order
@@ -38,36 +88,40 @@ service. TEST project = `Digi_SEO_Test` (ref `snyzotgwwfomgafrsvfm`);
 `DOCUMENTATION_WORKFLOW_RULES.md` still governs the docs-preflight + docs-in-sync
 discipline for every task.
 
-## 3. Current branch / HEAD / working-tree state
+## 3. Repository state (reconciled 2026-09-19)
 
-- **Branch:** `main`. **HEAD:** `a594d1dbd0f67f71b218132b848ce9678c3cad17`
-  (`feat(seo): integrate competitor benchmark generation`).
-- **Working tree is CLEAN; local `main` = `origin/main` (pushed).** The project
-  is now committed history — recent commits: `a594d1d` (Competitor Stage 2B
-  frontend integration), `2d5ff89` (Competitor Stage 2A backend), `e00caa2`
-  (Competitor Stage 1), `b976340` (Reports v1 complete + locked), `420f9ca`
-  (cloudbuild), `e1a918a` (SSO), `2b9537b` (SEO Intelligence module import).
-  `a594d1d` and `2d5ff89` were fast-forwarded onto `main` from
-  `feat/seo-competitor-generate-stage2a` (2026-07-24; that feature branch
-  still exists on `origin`, not deleted). Use normal Git hygiene: branch
-  before non-trivial work; commit/push only when a task instructs it.
+- **Canonical Git state = `origin/main` = `9cb3676`** (see §0). Any individual
+  clone's checked-out branch, local HEAD or uncommitted files are a working copy,
+  **not** project state — do not infer project status from a clone's `git status`.
+- **Canonical history, newest first:** `9cb3676` (Rec Gen Stage 2 docs + lock) ·
+  `36d32af` (Rec Gen Stage 2 implementation) · `c1de7fe` (Rec Gen Stage 1 lock
+  reconciliation) · `e7b1fbe` (Rec Gen Stage 1 lock) · `808d54d` (Rec Gen Stage 1
+  backend) · `71ac8fd` (Competitor lock) · `a594d1d` (Competitor Stage 2B) ·
+  `2d5ff89` (Competitor Stage 2A) · `e00caa2` (Competitor Stage 1) · `b976340`
+  (Reports v1 complete + locked) · `420f9ca` (cloudbuild) · `e1a918a` (SSO) ·
+  `2b9537b` (SEO module import) · `0017e83` (initial import).
+- **`origin/release`** is a separate branch (`c9d840b`): tree-identical to `main`
+  but carrying an extra merge commit that is not in `main` (§0). Do not treat
+  `release` as canonical, and do not merge or realign it without an explicit task.
 - **Cross-project SSO is intentionally DEFERRED:** migration `20260720121000`
-  (`seo_cross_project_identity_bridge`) is present in the repo but **pending /
-  unapplied on `Digi_SEO_Test`** and must not be applied without a separate,
-  explicit SSO task (see `SEO_DECISIONS.md` A14).
-- **Recommendation Generation Stage 1 (accepted + locked + merged,
-  2026-07-24) is `origin/main` HEAD:** `e7b1fbebfc9d99fd69bbaceb93d277b4bea36c42`
-  (`docs(seo): lock recommendation generation stage 1`), comprising
-  implementation commit `808d54d457ad9be713440ce2513bd65d6a0f11ea`
-  (`feat(seo): add guarded recommendation generation`) and this lock's own
-  documentation commit, both originally made on
-  `feat/seo-recommendation-generate-stage1` (based on `origin/main`
-  `71ac8fd0fd6087bb5435bea4cca865025bc27967`), then pushed to `origin` and
-  fast-forwarded onto `main` (`71ac8fd..e7b1fbe`, no merge commit) in a
-  subsequent finalization task. `main`'s own top-of-section HEAD line above
-  predates this and should be read together with this bullet.
+  (`seo_cross_project_identity_bridge`) is present in the repo but **not recorded
+  on `Digi_SEO_Test`** and must not be applied without a separate, explicit SSO
+  task (`SEO_DECISIONS.md` A14).
+- **Recommendation Generation migration `20260724130000` is likewise not recorded
+  on `Digi_SEO_Test`** (rolled back 2026-07-24 — see §0 and §4). It is committed
+  and locked in Git; its absence from TEST is deliberate and awaits a separately
+  approved decision.
+- Use normal Git hygiene: branch before non-trivial work; commit/push only when a
+  task instructs it.
 
 ## 4. Completed work (see `SEO_IMPLEMENTATION_STATUS.md` for evidence)
+
+> **Reading note (2026-09-19).** The "Latest activity" entries below are a
+> **dated chronological record** written on the day each event happened. Phrases
+> such as "not committed/pushed", "pending push/merge", "Stage 2 not started",
+> "`origin/main` HEAD is …" or "only pending migration" were accurate *at that
+> time* and are intentionally preserved. **They do not describe the present.**
+> The present state is §0.
 
 - **Backend crawler stack — LOCKED:** P1a Domain Ownership Verification (DNS-TXT);
   Crawler Phases 16C–16H (customer crawl UI + crawl/audit/publishing contracts);
@@ -421,11 +475,11 @@ MODULE-LOCKED (2026-07-24)** — locally verified against a real, isolated
 local Supabase stack (Docker-based; full SQL suite + live two-session
 concurrency proof both passed), committed as `808d54d`/`e7b1fbe`,
 **fast-forwarded onto `main` and pushed** (`71ac8fd..e7b1fbe`).
-**Recommendation Generation Stage 2 (frontend integration) is now COMPLETE,
-ACCEPTED, and MODULE-LOCKED (2026-07-24)** — committed as
-`36d32af2a3841267d19a7911ad7e693e6e10f81d` on
-`feat/seo-recommendation-generate-stage2`. **Committed locally only — not
-pushed to `origin`, not merged to `main`.**
+**Recommendation Generation Stage 2 (frontend integration) is COMPLETE,
+ACCEPTED, and MODULE-LOCKED (accepted + locked 2026-07-24)** — committed as
+`36d32af2a3841267d19a7911ad7e693e6e10f81d` and `9cb3676`, and **merged into
+canonical `main` at `9cb3676` on 2026-09-19** (fast-forward from `c1de7fe`).
+**Roadmap Backend is DESIGN ONLY — not implemented** (§0).
 
 ## 6. Locked modules
 
@@ -436,23 +490,33 @@ Stages 1–3; LOCKED 2026-07-20)** · **Competitor Benchmarking (persisted read 
 guarded generation + frontend integration, Stages 1–2; LOCKED 2026-07-24)** ·
 **Recommendation Generation — Stage 1 backend only (additive schema + guarded
 generation RPC; LOCKED 2026-07-24)** · **Recommendation Generation — Stage 2
-frontend integration (LOCKED 2026-07-24 — committed locally on
-`feat/seo-recommendation-generate-stage2`, not yet pushed/merged; the
-Stage 1 lock above remains separate and unchanged).**
+frontend integration (LOCKED 2026-07-24; merged into canonical `main` at
+`9cb3676` on 2026-09-19; the Stage 1 lock above remains separate and
+unchanged).**
 (Details + unlock procedure: `docs/markdown/MODULE_LOCKS.md`.)
 
 ## 7. Production status
 
-**UNTOUCHED.** No production migration/RPC/worker/config applied; Cloud Run not
-deployed. Hard invariant until a separately-approved promotion task passes the
-`BACKEND_MILESTONE_HANDOFF.md` §5 gates.
+**No SEO production Supabase project exists or has been identified**
+(`Digi_SEO_Test` is the only SEO project; the 2026-07-24 read-only project
+listing recorded in `SEO_PRODUCTION_PROMOTION_PLAN.md` §1.4 also showed
+`Digi_Visi`, whose role is unknown and which this module has never touched). **No production rollout has occurred:** no production
+migration/RPC/worker/config applied; Cloud Run not deployed. Hard invariant
+until a separately-approved promotion task passes the
+`BACKEND_MILESTONE_HANDOFF.md` §5 gates. `SEO_PRODUCTION_PROMOTION_PLAN.md` is a
+future planning reference only — it does not reflect production readiness.
 
 ## 8. Current risks
 
-- **Deferred SSO migration `20260720121000` is pending on TEST** (§3): do not let
-  a `supabase db push` apply it as a side effect of an unrelated migration —
-  apply new migrations in isolation + `migration repair`, as done for Competitor
-  Stage 1.
+- **Two repository migrations are not recorded on TEST** (§0/§3): the deferred SSO
+  migration `20260720121000` and the Recommendation Generation migration
+  `20260724130000`. Do not let a `supabase db push` apply either as a side effect
+  of an unrelated migration — apply new migrations in isolation + `migration
+  repair`, as done for Competitor Stage 1.
+- **Frontend/TEST skew:** the `main` frontend expects `seo_recommendation_generate`,
+  which TEST lacks (§0). Do not deploy `main` to TEST as a Recommendation
+  Generation acceptance vehicle until `20260724130000` is separately approved and
+  applied.
 - **Cloud Run container-runtime verification is still deferred** — do not treat
   the container as production-verified.
 - **No frontend test/lint runner exists** — verification relies on `tsc`/build +
@@ -479,22 +543,24 @@ onto `main`, and pushed as `origin/main` (`71ac8fd..e7b1fbe`). **No further
 `Digi_SEO_Test` use is permitted for this feature without an approval
 explicitly recorded in the controlling ChatGPT instruction trail.**
 
-**Recommendation Generation Stage 2 (frontend integration) is now DONE,
-ACCEPTED, and MODULE-LOCKED (2026-07-24)** — not a pending item. Frontend
-service wiring, role-gated UI control, 15 new unit tests, genuine
-local-database verification (including a base-table-GRANT
-local-environment gap reproduced from a clean reset and fixed via a
-reusable script), and live authenticated browser acceptance (incl. a
-deterministic loading-state proof and a live no-eligible-findings proof)
-are all complete. Committed as `36d32af2a3841267d19a7911ad7e693e6e10f81d`
-on `feat/seo-recommendation-generate-stage2` (based on `origin/main`
-`c1de7fe5400d88189d1b826d884ef31779ab2290`); formal lock entry added to
-`docs/markdown/MODULE_LOCKS.md`. **The Stage 1 backend lock's own entry was
-not edited and remains unchanged.** **The exact next step is push +
-fast-forward merge to `main` — a separate, explicitly-approved step, not
-performed in this task.** See §4 latest activity +
-`SEO_RECOMMENDATION_GENERATION_STAGE2_VERIFICATION.md` +
-`SEO_IMPLEMENTATION_STATUS.md` §1/§7/§8 for full evidence.
+**Recommendation Generation Stage 2 (frontend integration) is DONE, ACCEPTED,
+MODULE-LOCKED, and MERGED TO CANONICAL `main` (`9cb3676`, 2026-09-19)** — not a
+pending item. Frontend service wiring, role-gated UI control, 15 new unit tests,
+genuine local-database verification (incl. the base-table-GRANT local-environment
+gap and its reusable script) and live authenticated browser acceptance are all
+complete; evidence: `SEO_RECOMMENDATION_GENERATION_STAGE2_VERIFICATION.md`. The
+Stage 1 backend lock's own entry was not edited.
+
+**There is no pending Git step for Recommendation Generation.** Open decisions
+(each needs its own explicit approval; none has been started):
+
+1. Whether to apply `20260724130000` to `Digi_SEO_Test` (or keep it deliberately
+   absent). Until then, TEST cannot exercise Recommendation Generation.
+2. Whether/how to realign `origin/release` with `main`.
+3. Roadmap Backend implementation — **design only today**. Start from
+   `SEO_ROADMAP_BACKEND_ARCHITECTURE.md`; note that document specifies a single
+   table `seo_roadmap_items`, and any other model (e.g. plans → periods → items)
+   would need a design revision first. Nothing about it is implemented.
 
 Other candidate track (independent of the above):
 
@@ -519,10 +585,18 @@ Other candidate track (independent of the above):
 - **Do not repeat completed audits or re-verify locked modules.** P1a, 16C–16H,
   P1b, and **Reports v1** are done, locked, and TEST-verified. Trust the sign-offs;
   re-verify only if a task explicitly changes that scope.
-- **Git state is committed + pushed** (§3); the tree is clean and synced with
-  `origin/main`. Branch before non-trivial work; commit/push only when instructed.
+- **Canonical Git state is `origin/main` = `9cb3676`** (§0/§3). Do not infer it from
+  any clone's local `git status`. Branch before non-trivial work; commit/push only
+  when instructed.
 - **Do not apply the deferred SSO migration `20260720121000`** without a separate
   explicit SSO task; apply new migrations in isolation to avoid pulling it in.
+  **Likewise do not apply `20260724130000`** to TEST without an approval recorded
+  in the controlling instruction trail.
+- **Never treat design/planning documents as implementation authority:**
+  `SEO_RECOMMENDATION_GENERATION_ARCHITECTURE.md` (historical design),
+  `SEO_ROADMAP_BACKEND_ARCHITECTURE.md` (design only — not implemented),
+  `SEO_RELEASE_ROADMAP.md` (planning snapshot) and
+  `SEO_PRODUCTION_PROMOTION_PLAN.md` (future planning reference).
 - **Recommend the appropriate Claude model** in future prompts: use **Opus** for
   deep planning, architecture, security-sensitive or cross-cutting changes, and
   audits; **Sonnet** for well-scoped implementation/edits; **Haiku** for trivial
@@ -536,7 +610,7 @@ Other candidate track (independent of the above):
 - **Honor the locks + additive-only + no-production + preserve-mock-mode +
   no-service-role-in-frontend invariants** (`SEO_DECISIONS.md` §4–6).
 
-## 12. Latest Claude session reconciliation
+## 12. Prior Claude session reconciliation (2026-07, historical)
 
 - **Final P1b read-only reconciliation audit result: `CLEAN WITH NON-BLOCKING
   NOTES`.** P1b's applied RPC diff = guard only; rollback fidelity, fixture
@@ -556,3 +630,23 @@ Other candidate track (independent of the above):
   here (its historical body retained). No runtime/source/migration/SQL/test/config
   file was modified; no database was contacted; nothing was staged, committed, or
   pushed.
+
+## 13. Authoritative documentation reconciliation (2026-09-19)
+
+- Reconciled this authority package (`SEO_CONTEXT_HANDOVER.md`,
+  `SEO_IMPLEMENTATION_STATUS.md`, `SEO_DECISIONS.md`,
+  `docs/markdown/PROJECT_DOCUMENTATION_INDEX.md`) against canonical `main`
+  `9cb3676` and the 2026-09-19 audit. Added §0 as the single current-state
+  table; fixed the stale current-state wording (HEAD, "clean tree", Stage 2
+  "not pushed/merged", "production untouched" phrasing).
+- `docs/markdown/MODULE_LOCKS.md` received an **additive** dated note only; no
+  historical locked entry was rewritten.
+- `SEO_LOCAL_DATABASE_SETUP.md` was reconciled (committed Stage 2 version as base
+  plus still-correct material from the earlier local version).
+- Four previously untracked documents were added with classification banners:
+  `SEO_RECOMMENDATION_GENERATION_ARCHITECTURE.md` (historical design),
+  `SEO_ROADMAP_BACKEND_ARCHITECTURE.md` (design only — not implemented),
+  `SEO_RELEASE_ROADMAP.md` (planning snapshot),
+  `SEO_PRODUCTION_PROMOTION_PLAN.md` (future planning reference).
+- No product code, migration, test SQL, runtime config or crawler-worker file was
+  modified; no database was contacted; nothing was pushed by that task.
