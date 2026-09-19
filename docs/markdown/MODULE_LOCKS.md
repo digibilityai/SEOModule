@@ -1248,9 +1248,10 @@ unchanged._
 
 _`origin/release` (`c9d840b7a1b26ff473408e1ccde2b90d52f32966`) had earlier
 received the same Stage 2 work through a merge commit (PR #1). That merge
-commit is **not** part of `main`; the `release` tree and the `main` tree are
-identical (`912308d5f3b8f7423014da4b9ff637f00626a0f7`). `release` was not
-modified by this reconciliation._
+commit is **not** part of `main`. At `9cb3676` the `release` tree and the `main`
+tree were identical (`912308d5f3b8f7423014da4b9ff637f00626a0f7`); after the
+2026-09-19 documentation-only integration `main` differs from `release` only by
+documentation files. `release` was not modified by this reconciliation._
 
 _**Deployment caveat that still applies:** the Stage 2 frontend calls
 `seo_recommendation_generate`, whose migration

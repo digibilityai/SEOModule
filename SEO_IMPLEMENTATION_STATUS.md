@@ -7,10 +7,11 @@ this file points to `CURRENT_PROJECT_STATUS.md` (the retained detailed ledger),
 `MODULE_LOCKS.md`, and the per-module sign-off documents.
 
 **As of:** 2026-09-19 (reconciled against canonical `main`). **Canonical
-`origin/main`:** `9cb3676e52235a2012a0435ce568c8faab4c4347`
+`origin/main` code/migration baseline:** `9cb3676e52235a2012a0435ce568c8faab4c4347`
 (`docs(seo): accept and lock recommendation generation stage 2`), fast-forwarded
-from `c1de7fe5400d88189d1b826d884ef31779ab2290` on 2026-09-19. Everything marked
-LOCKED below is committed on that tip. A given clone's local branch/HEAD/dirty
+from `c1de7fe5400d88189d1b826d884ef31779ab2290` on 2026-09-19; the 2026-09-19
+documentation integration then added docs-only commits on top. Everything marked
+LOCKED below is committed on `9cb3676` and unchanged by them. A given clone's local branch/HEAD/dirty
 tree is not project state. Rows in §1 carry dated history from the day each
 event happened; where a row's wording says "not pushed / pending merge / only
 pending migration", read §0 — it is the current truth.
@@ -21,11 +22,11 @@ pending migration", read §0 — it is the current truth.
 
 | Item | State |
 |---|---|
-| Canonical `main` | `9cb3676` (verified 2026-09-19: `tsc` clean, `npm run build` clean, root `vitest` 48/48, crawler-worker 74/74) |
-| `origin/release` | `c9d840b` — merge commit not in `main`; tree identical to `main` (`912308d5…`); untouched |
+| Canonical `main` | Code/migration baseline `9cb3676` (verified 2026-09-19: `tsc` clean, `npm run build` clean, root `vitest` 48/48, crawler-worker 74/74). `main` was exactly `9cb3676` before the documentation integration; the integration added only docs commits (`eb7a366` + `docs(seo): finalize authoritative resync`). |
+| `origin/release` | `c9d840b` — merge commit not in `main`; at `9cb3676` its tree was identical to `main`'s (`912308d5…`), after the docs integration `main` differs only by documentation files; **non-canonical, untouched** |
 | Recommendation Generation Stage 1 (backend) | **Complete, LOCKED**, on `main` |
 | Recommendation Generation Stage 2 (frontend) | **Complete, LOCKED, merged to canonical `main`** (`36d32af` + `9cb3676`) |
-| Roadmap Backend | **DESIGN ONLY — NOT IMPLEMENTED.** No Roadmap migration/RPC/table/Supabase service in Git. `/seo/roadmap` is mock-data only. Design: `SEO_ROADMAP_BACKEND_ARCHITECTURE.md` |
+| Roadmap Backend | **DESIGN ONLY — NOT IMPLEMENTED.** The approved architecture is **plans → periods → items**, which **supersedes** the earlier flat single-table (`seo_roadmap_items`) design still preserved, marked superseded, in `SEO_ROADMAP_BACKEND_ARCHITECTURE.md`; the three-level details beyond the hierarchy are **TBD** there. **No Roadmap migration, RPC, table or Supabase service exists in Git.** The Roadmap frontend (`/seo/roadmap` page + `roadmapService.ts`) exists **only as a mock-backed UI/service** — no `runWithServiceAdapter`, no Supabase call, in every data mode. |
 | Repo migrations | **42** files in `supabase/migrations/` |
 | `Digi_SEO_Test` | Restored, **`ACTIVE_HEALTHY`**; **40 migrations recorded**, latest `20260724120040` |
 | Not recorded on TEST | `20260720121000` SSO (deliberately deferred); `20260724130000` Recommendation Generation (deliberately absent after documented 2026-07-24 rollback) |
@@ -245,8 +246,9 @@ paths are unaffected).
 - **Open decisions (none started; each needs explicit approval):** (a) apply
   `20260724130000` to `Digi_SEO_Test`, or keep it deliberately absent; (b) realign
   `origin/release` with `main`; (c) implement Roadmap Backend — **design only
-  today** (`SEO_ROADMAP_BACKEND_ARCHITECTURE.md`; it specifies one table,
-  `seo_roadmap_items`; a different model would need a design revision first).
+  today**; the approved architecture is **plans → periods → items**, superseding
+  the flat `seo_roadmap_items` design preserved in
+  `SEO_ROADMAP_BACKEND_ARCHITECTURE.md` (three-level details TBD there).
 - **Recommended next major step (independent track):**
   **production-promotion planning / preflight** for the crawler + P1a + P1b
   stack — the other remaining candidate track.

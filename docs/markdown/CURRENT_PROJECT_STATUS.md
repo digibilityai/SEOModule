@@ -1,5 +1,21 @@
 # Digibility SEO Module — Current Project Status
 
+> ## 📜 HISTORICAL LEDGER — NOT CURRENT AUTHORITY (labelled 2026-09-19)
+>
+> This file is the detailed, dated status **ledger**. Its newest entry is dated
+> 2026-07-21; it predates Competitor Benchmarking, Recommendation Generation and the
+> 2026-09-19 reconciliation. **Do not use it to determine the current project state.**
+> Where it calls itself "authoritative" or "the source of truth for status" (including
+> the "Source of truth" note near the top), that statement is **superseded**.
+>
+> **Current authority:** [`SEO_CONTEXT_HANDOVER.md`](../../SEO_CONTEXT_HANDOVER.md) §0 →
+> [`SEO_IMPLEMENTATION_STATUS.md`](../../SEO_IMPLEMENTATION_STATUS.md) →
+> [`SEO_DECISIONS.md`](../../SEO_DECISIONS.md) →
+> [`SEO_PROJECT_CONTEXT.md`](../../SEO_PROJECT_CONTEXT.md); lock registry
+> [`MODULE_LOCKS.md`](MODULE_LOCKS.md); classification of every document:
+> [`PROJECT_DOCUMENTATION_INDEX.md`](PROJECT_DOCUMENTATION_INDEX.md). All historical
+> entries below are unchanged.
+
 **2026-07-21 GCP TEST scaffolding:** SEO module now has Cloud Run deploy
 artifacts (`Dockerfile`, `nginx.conf`, `entrypoint.sh`, `cloudbuild.yaml`) and
 runtime-config injection (same pattern as Digibility UI). Digibility

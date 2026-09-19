@@ -572,23 +572,37 @@ current state.
     (`c1de7fe` → `9cb3676`; commits `36d32af` + `9cb3676`; no force, no merge
     commit). Current status: `ACCEPTED — MODULE-LOCKED — MERGED TO CANONICAL
     main`. The Stage 1 lock is unchanged. `origin/release` (`c9d840b`, a merge
-    commit not in `main`) is tree-identical to `main` and was left untouched.
+    commit not in `main`) was tree-identical to `9cb3676` (after the docs-only
+    integration it differs from `main` only by documentation files) and was left untouched.
     **TEST caveat unchanged:** the frontend expects `seo_recommendation_generate`,
     whose migration `20260724130000` is not recorded on `Digi_SEO_Test`.
 
-- **A19. Roadmap Backend is DESIGN ONLY — not implemented, not started
-  (status decision recorded 2026-09-19).** The sole artefact is
-  `SEO_ROADMAP_BACKEND_ARCHITECTURE.md`. Canonical Git contains **no** Roadmap
-  migration, RPC, table or Supabase service; `roadmapService.ts` dispatches
-  straight to mock data in every data mode, and the locked
-  `seo_report_generate` RPC truthfully reports `roadmap` as `unavailable`.
-  Implementation requires a separate, explicitly-approved task that follows the
-  standard sequence (architecture → Stage 1 backend → Stage 2 frontend →
-  verification → lock decision). **Open design question:** the surviving design
-  document specifies **one** table (`seo_roadmap_items`) and **one** guarded RPC
-  (`seo_roadmap_generate`); it does **not** specify a plans → periods → items
-  hierarchy. If a multi-level model is wanted, the design must be revised and
-  re-approved before any implementation.
+- **A19. Roadmap Backend architecture = `plans → periods → items`; status
+  DESIGN ONLY — not implemented (decision recorded 2026-09-19).**
+  - **Architecture (approved 2026-09-19):** a **plan** contains **periods**, and a
+    **period** contains **items**. This **supersedes** the earlier flat
+    single-table design (`seo_roadmap_items` + `seo_roadmap_generate … RETURNS SETOF
+    seo_roadmap_items`) that `SEO_ROADMAP_BACKEND_ARCHITECTURE.md` originally
+    specified; that document now marks the flat sections (§3–§7, §10) superseded and
+    carries an amendment recording what stays valid and what is superseded.
+  - **What is decided:** only the three-level hierarchy, and that the product
+    behaviour/requirements analysed in that document (six sources, the mock's
+    selection heuristic, item content, authorization principles, human-touched work
+    never overwritten, mock-mode preservation, truthful provenance) carry over.
+  - **TBD (deliberately not invented):** table names/columns for all three levels,
+    period granularity and count, plan cardinality and lifecycle, identity/dedup and
+    regeneration semantics, RLS per table, RPC set/signatures, read-service surface,
+    migration and verification plans. The detailed three-level design document is not
+    among the surviving repository files; a detailed, approved design is required
+    before any implementation.
+  - **Status:** **DESIGN ONLY — NOT IMPLEMENTED.** Canonical Git contains **no**
+    Roadmap migration, RPC, table or Supabase service. The Roadmap frontend
+    (`/seo/roadmap` page and `roadmapService.ts`) exists **only as a mock-backed
+    UI/service** (no `runWithServiceAdapter`, no Supabase call). The locked
+    `seo_report_generate` RPC truthfully reports `roadmap` as `unavailable`.
+    Implementation requires a separate, explicitly-approved task following the standard
+    sequence (architecture → Stage 1 backend → Stage 2 frontend → verification → lock
+    decision).
 - **A20. Design, planning and historical documents are never implementation
   authority (recorded 2026-09-19).** `SEO_RECOMMENDATION_GENERATION_ARCHITECTURE.md`
   (historical design — the implemented RPC returns `SETOF seo_recommendations`,

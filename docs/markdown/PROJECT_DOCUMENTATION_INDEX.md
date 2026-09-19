@@ -9,8 +9,10 @@ read it. Maintained per `DOCUMENTATION_WORKFLOW_RULES.md`.
 package, the §B / §B2 / §B3 documents (`SEO_*.md`, `P1B_*.md`, `COMPETITOR_*.md`,
 `DIGIBILITY_*.md`) and `README.md` / `CLAUDE.md`; root copies of the older
 process docs are redirect stubs. Browseable HTML architecture & flow docs: open `docs/index.html`
-(no server required). Grouped HTML index of these markdown files:
-`docs/pages/markdown-index.html`.
+(no server required). Grouped HTML index of these markdown files (**stale — see below**):
+`docs/pages/markdown-index.html`. **That page is hand-maintained (no generator or
+script exists in the repository), was last edited 2026-07-21 ("62 files"), and does not list
+the newer documents — use this index, not the HTML page, for the full map.**
 
 **Last audited / reconciled:** 2026-09-19 — authoritative resynchronisation
 against canonical `main` `9cb3676e52235a2012a0435ce568c8faab4c4347`
@@ -56,6 +58,15 @@ recorded as dated additive notes.
 > `CURRENT_PROJECT_STATUS.md` is the **detailed historical status ledger** (its
 > newest entry is dated 2026-07-21; it predates Competitor Benchmarking and
 > Recommendation Generation) — use it for history, **not** for current state.
+> Several older entry-point documents (`CLAUDE.md`, `README.md`, `PROJECT_BOOTSTRAP.md`,
+> `DOCUMENTATION_WORKFLOW_RULES.md`) still call it "authoritative"; that wording is
+> superseded, and the ledger itself now carries a banner pointing back here.
+
+**Historical status headers that the authority package overrides.** The two locked
+evidence records `SEO_RECOMMENDATION_GENERATION_STAGE1_VERIFICATION.md` ("Not pushed or
+merged to `main`") and `SEO_RECOMMENDATION_GENERATION_STAGE2_VERIFICATION.md` (`PENDING
+PUSH/MERGE`) are preserved **unedited**; their push/merge headers describe 2026-07-24.
+Current status is `SEO_CONTEXT_HANDOVER.md` §0.
 
 **Status legend:**
 - **current** — accurate, no change needed in this audit.
@@ -74,7 +85,7 @@ recorded as dated additive notes.
 | `PROJECT_BOOTSTRAP.md` | Single entry point for any new AI session — project overview, repo rules, mandatory reading order, locked architectural decisions, module map, module completion/lock rules, AI working agreement, bootstrap prompt. | **new** | **Every task, first** |
 | `CHATGPT_CONTEXT_HANDOVER.md` | Compact, self-contained handover for a fresh **ChatGPT oversight thread** — product/repo overview, architecture + BFF boundaries (no-BFF Supabase-direct; crawler worker = trusted-server exception; parent-platform BFF deferred), backward-compat, source-of-truth hierarchy, dev plan/phase, locked modules, **latest P1a state (Step 2.8 PASS; final `idle→in_flight→cooldown→idle` guard; A3 + revoke cleanup done; Step 2B/3 SQL unblocked-not-rerun; two operator items pending; not locked)**, accepted/rejected decisions, blockers, exact next step, the ChatGPT↔Claude protocol + Claude model-selection protocol, and the minimum upload set. | **new** (2026-07-17) | Handing the project to a new ChatGPT thread |
 | `MODULE_LOCKS.md` | Authoritative per-module lock registry — locked file lists, allowed/not-allowed changes, evidence bar required before modifying a locked module. Now includes **"Stage 6 — Off-Page Authority Workflows and AI Visibility Reads"** (LOCKED 2026-07-13, implemented scope only; deferred Stage 6 work explicitly kept UNLOCKED for additive extension) alongside the pre-existing Page Performance Tracker lock. Also locked: Crawler 16C–16H (2026-07-15), P1a Domain Ownership Verification (2026-07-19), P1b Verified-only Crawl Enqueue Enforcement (2026-07-19), Reports v1 — persisted read + guarded generation + PDF export, Stages 1–3 (2026-07-20), Competitor Benchmarking — persisted read + guarded generation + frontend integration, Stages 1–2 (2026-07-24), Recommendation Generation — Stage 1 backend only, additive schema + guarded generation RPC (2026-07-24), and Recommendation Generation — Stage 2 frontend integration (2026-07-24; merged into canonical `main` at `9cb3676` on 2026-09-19 — recorded as an additive reconciliation note; the Stage 1 entry above is separate and unedited). This file (`docs/markdown/MODULE_LOCKS.md`) is the authoritative registry; the repo-root `MODULE_LOCKS.md` is a redirect stub. (The P1a/P1b entries, dropped during the SSO doc relocation, were restored verbatim from `git show 2b9537b:MODULE_LOCKS.md` on 2026-07-20.) | **AUTHORITY** (lock registry) · **updated** (2026-09-19 — additive reconciliation note for Stage 2 merge; no historical entry rewritten) | Before modifying any file belonging to a listed module |
-| `CURRENT_PROJECT_STATUS.md` | Authoritative one-page current status (backend/wiring/seed/live-test/production/limitations/next step). | **new** | **Every task** |
+| `CURRENT_PROJECT_STATUS.md` | **HISTORICAL LEDGER — not current authority** (banner added 2026-09-19). Detailed dated status ledger; newest entry 2026-07-21; predates Competitor Benchmarking and Recommendation Generation. Its "authoritative / source of truth" self-description is superseded by the authority package above. | **historical ledger** (entries unchanged) | History only; **not** for current state |
 | `PROJECT_DOCUMENTATION_INDEX.md` | This map of all docs. | **new** | **Every task** |
 | `DOCUMENTATION_WORKFLOW_RULES.md` | Preflight + docs-sync rules for all future tasks. | **new** | **Every task** |
 | `README.md` | Repo entry point: stack, setup, data mode, status summary. | **stale-fixed** (was stuck at "Phase 0 scaffold") | Onboarding / setup |
@@ -104,7 +115,7 @@ locked?" — use the authority package above.
 
 | File | Classification | What it is | Current truth to keep in mind |
 | --- | --- | --- | --- |
-| `SEO_ROADMAP_BACKEND_ARCHITECTURE.md` | **CURRENT DESIGN — DESIGN ONLY, NOT IMPLEMENTED** | Architecture design for a persisted 90-day Roadmap: one table `seo_roadmap_items`, one guarded RPC `seo_roadmap_generate`, read-path wiring, replace-to-match generation. | **No Roadmap migration/RPC/table/Supabase service exists in canonical Git;** `/seo/roadmap` is mock-only. Not started, not approved. The document specifies a single table — **not** a plans → periods → items hierarchy. See `SEO_DECISIONS.md` A19. |
+| `SEO_ROADMAP_BACKEND_ARCHITECTURE.md` | **CURRENT DESIGN — DESIGN ONLY, NOT IMPLEMENTED** | Roadmap Backend design. **Approved architecture (2026-09-19): plans → periods → items**, which **supersedes** the document's original flat single-table (`seo_roadmap_items`) model; the top-of-file amendment lists what carries over and marks the three-level details **TBD**; flat-model sections (§3–§7, §10) are marked superseded and kept only as historical reference for product rules. | **No Roadmap migration/RPC/table/Supabase service exists in canonical Git.** The Roadmap frontend (`/seo/roadmap`, `roadmapService.ts`) is **mock-backed UI/service only**. Not started. See `SEO_DECISIONS.md` A19. |
 | `SEO_RECOMMENDATION_GENERATION_ARCHITECTURE.md` | **HISTORICAL DESIGN** | The pre-implementation design of Recommendation Generation (2026-07-24). | Implemented, locked and on `main` — **but the shipped RPC differs** (`RETURNS SETOF seo_recommendations`, not `integer`; on-page templates always generated). Migration `20260724130000` is **not applied to TEST**. Authority: the migration file + the two verification docs + `SEO_DECISIONS.md` A17/A18. |
 | `SEO_RELEASE_ROADMAP.md` | **PLANNING / REFERENCE** (2026-07-24 snapshot) | Path-to-Release-Candidate analysis: modules done/remaining, cross-module gaps, execution order, RC checklist. | Its "authoritative" self-description is **withdrawn**. The §4.1 issue→recommendation gap it names is closed on `main`; Roadmap backend is still open. Banner lists the factual deltas. |
 | `SEO_PRODUCTION_PROMOTION_PLAN.md` | **PLANNING / REFERENCE** (future) | Planning-only reference for an eventual production promotion (deployment order, migration plan, rollback, smoke tests, go/no-go). | **Not a statement of production readiness.** No SEO production Supabase project exists; no production rollout has occurred. Repo has 42 migrations; TEST records 40; two unrecorded (SSO deferred; Recommendation Generation absent after rollback). |

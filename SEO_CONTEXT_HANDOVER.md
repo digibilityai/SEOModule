@@ -22,12 +22,12 @@ retained as a chronological record; where they conflict with §0, §0 wins.
 
 | Item | Current state |
 |---|---|
-| **Canonical `main`** | `9cb3676e52235a2012a0435ce568c8faab4c4347` (`docs(seo): accept and lock recommendation generation stage 2`). Fast-forwarded from `c1de7fe5400d88189d1b826d884ef31779ab2290` on 2026-09-19 (normal fast-forward push; no force, no merge commit). |
+| **Canonical `main`** | **Code/migration baseline: `9cb3676e52235a2012a0435ce568c8faab4c4347`** (`docs(seo): accept and lock recommendation generation stage 2`), fast-forwarded from `c1de7fe5400d88189d1b826d884ef31779ab2290` on 2026-09-19 (normal push; no force, no merge commit). `main` was exactly `9cb3676` immediately before this documentation reconciliation was integrated; the integration then added **only documentation commits** on top (`eb7a366`, then `docs(seo): finalize authoritative resync`). The current tip is therefore a docs-only descendant of `9cb3676` — find it with `git fetch origin && git rev-parse origin/main`. Source, migrations, test SQL and configuration are identical to `9cb3676`. |
 | **Commits Stage 2 added to `main`** | Exactly two, linear: `36d32af2a3841267d19a7911ad7e693e6e10f81d` (`feat(seo): integrate recommendation generation workflow`) then `9cb3676` (`docs(seo): accept and lock recommendation generation stage 2`). |
-| **`origin/release`** | `c9d840b7a1b26ff473408e1ccde2b90d52f32966` — a merge commit (PR #1) that brought the Stage 2 branch into `release`. It is **not** in `main`. Its tree is identical to `main`'s (tree `912308d5f3b8f7423014da4b9ff637f00626a0f7`). `release` was not modified. |
+| **`origin/release`** | `c9d840b7a1b26ff473408e1ccde2b90d52f32966` — a merge commit (PR #1) that brought the Stage 2 branch into `release`. It is **not** in `main`. At `9cb3676` its tree was identical to `main`'s (tree `912308d5f3b8f7423014da4b9ff637f00626a0f7`); after the docs integration `main` differs from `release` **only by documentation files**. `release` is **non-canonical** and was not modified. |
 | **Recommendation Generation Stage 1 (backend)** | **Complete, accepted, MODULE-LOCKED**, on `main` (`808d54d`, `e7b1fbe`, `c1de7fe`). |
 | **Recommendation Generation Stage 2 (frontend integration)** | **Complete, accepted, MODULE-LOCKED, and merged into canonical `main`** at `9cb3676`. |
-| **Roadmap Backend** | **DESIGN ONLY — NOT IMPLEMENTED.** The only artefact is the design document `SEO_ROADMAP_BACKEND_ARCHITECTURE.md`. **No Roadmap migration, RPC, table, or Supabase service exists in canonical Git.** The existing `/seo/roadmap` page and `roadmapService.ts` are **mock-data only** (no `runWithServiceAdapter`, no Supabase call) in every data mode. |
+| **Roadmap Backend** | **DESIGN ONLY — NOT IMPLEMENTED.** The approved architecture is **plans → periods → items**, which **supersedes** the earlier flat single-table (`seo_roadmap_items`) design still preserved, marked superseded, in `SEO_ROADMAP_BACKEND_ARCHITECTURE.md`; the three-level details beyond the hierarchy are **TBD** there. **No Roadmap migration, RPC, table or Supabase service exists in Git.** The Roadmap frontend (`/seo/roadmap` page + `roadmapService.ts`) exists **only as a mock-backed UI/service** — no `runWithServiceAdapter`, no Supabase call, in every data mode. |
 | **`Digi_SEO_Test` (TEST)** | Restored and **`ACTIVE_HEALTHY`**. **40 migrations recorded**, the latest being `20260724120040`. |
 | **Repository migrations** | **42** files in `supabase/migrations/`. |
 | **Repo migrations NOT recorded on TEST** | (1) `20260720121000` — cross-project SSO identity bridge, **deliberately deferred** (`SEO_DECISIONS.md` A14). (2) `20260724130000` — Recommendation Generation, **deliberately absent after its documented 2026-07-24 rollback** (§4 environment-control reconciliation; `SEO_RECOMMENDATION_GENERATION_STAGE1_VERIFICATION.md` §4). |
@@ -50,6 +50,13 @@ applied would make the Generate button fail with the generic error message (no
 mock fallback by design — `fallbackToMockOnError:false`); nothing is written and
 the read paths do not depend on the new columns. Applying that migration to TEST
 requires an approval explicitly recorded in the controlling instruction trail.
+
+**Historical status headers that this section overrides.** The two **locked**
+evidence records `SEO_RECOMMENDATION_GENERATION_STAGE1_VERIFICATION.md` (header:
+"Not pushed or merged to `main`") and `SEO_RECOMMENDATION_GENERATION_STAGE2_VERIFICATION.md`
+(header: "`PENDING PUSH/MERGE` … Not yet pushed, not yet merged") are preserved
+**unedited** as historical evidence. Their push/merge headers describe 2026-07-24;
+**the current status is the table above.**
 
 **Which documents are authoritative vs. historical/planning** is defined in
 `docs/markdown/PROJECT_DOCUMENTATION_INDEX.md` (classification column). In
@@ -90,7 +97,8 @@ discipline for every task.
 
 ## 3. Repository state (reconciled 2026-09-19)
 
-- **Canonical Git state = `origin/main` = `9cb3676`** (see §0). Any individual
+- **Canonical Git state = `origin/main`** — code/migration baseline `9cb3676`, plus the
+  documentation-only commits of the 2026-09-19 integration (see §0). Any individual
   clone's checked-out branch, local HEAD or uncommitted files are a working copy,
   **not** project state — do not infer project status from a clone's `git status`.
 - **Canonical history, newest first:** `9cb3676` (Rec Gen Stage 2 docs + lock) ·
@@ -100,8 +108,9 @@ discipline for every task.
   `2d5ff89` (Competitor Stage 2A) · `e00caa2` (Competitor Stage 1) · `b976340`
   (Reports v1 complete + locked) · `420f9ca` (cloudbuild) · `e1a918a` (SSO) ·
   `2b9537b` (SEO module import) · `0017e83` (initial import).
-- **`origin/release`** is a separate branch (`c9d840b`): tree-identical to `main`
-  but carrying an extra merge commit that is not in `main` (§0). Do not treat
+- **`origin/release`** is a separate branch (`c9d840b`): it was tree-identical to
+  `9cb3676` (now differing from `main` only by documentation files) and carries an
+  extra merge commit that is not in `main` (§0). Do not treat
   `release` as canonical, and do not merge or realign it without an explicit task.
 - **Cross-project SSO is intentionally DEFERRED:** migration `20260720121000`
   (`seo_cross_project_identity_bridge`) is present in the repo but **not recorded
@@ -557,10 +566,12 @@ Stage 1 backend lock's own entry was not edited.
 1. Whether to apply `20260724130000` to `Digi_SEO_Test` (or keep it deliberately
    absent). Until then, TEST cannot exercise Recommendation Generation.
 2. Whether/how to realign `origin/release` with `main`.
-3. Roadmap Backend implementation — **design only today**. Start from
-   `SEO_ROADMAP_BACKEND_ARCHITECTURE.md`; note that document specifies a single
-   table `seo_roadmap_items`, and any other model (e.g. plans → periods → items)
-   would need a design revision first. Nothing about it is implemented.
+3. Roadmap Backend implementation — **design only today; nothing is implemented.**
+   The approved architecture is **plans → periods → items** (supersedes the older
+   flat `seo_roadmap_items` design preserved in `SEO_ROADMAP_BACKEND_ARCHITECTURE.md`).
+   That document's amendment lists what carries over and marks the three-level
+   details **TBD**; a detailed, approved three-level design is needed before any
+   implementation.
 
 Other candidate track (independent of the above):
 
@@ -585,7 +596,7 @@ Other candidate track (independent of the above):
 - **Do not repeat completed audits or re-verify locked modules.** P1a, 16C–16H,
   P1b, and **Reports v1** are done, locked, and TEST-verified. Trust the sign-offs;
   re-verify only if a task explicitly changes that scope.
-- **Canonical Git state is `origin/main` = `9cb3676`** (§0/§3). Do not infer it from
+- **Canonical Git state is `origin/main`** (baseline `9cb3676` + docs-only commits; §0/§3). Do not infer it from
   any clone's local `git status`. Branch before non-trivial work; commit/push only
   when instructed.
 - **Do not apply the deferred SSO migration `20260720121000`** without a separate
@@ -650,3 +661,11 @@ Other candidate track (independent of the above):
   `SEO_PRODUCTION_PROMOTION_PLAN.md` (future planning reference).
 - No product code, migration, test SQL, runtime config or crawler-worker file was
   modified; no database was contacted; nothing was pushed by that task.
+
+**Finalization (2026-09-19, same day).** The three-level Roadmap architecture
+(plans → periods → items) was recorded as approved and as superseding the flat
+single-table design (design only; details TBD); `CURRENT_PROJECT_STATUS.md` was
+labelled a historical ledger; the locked Stage 1/Stage 2 verification records were
+deliberately left unedited; wording about `main`'s tip and `release`'s tree was
+corrected for the docs-only integration. `docs/pages/markdown-index.html` is a
+hand-maintained static page with no generator and remains stale (see the index).

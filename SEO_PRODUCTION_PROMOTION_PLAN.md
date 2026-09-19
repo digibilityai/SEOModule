@@ -20,7 +20,7 @@
 > | Migrations recorded on `Digi_SEO_Test` | **40**, the latest being `20260724120040`; TEST is `ACTIVE_HEALTHY` |
 > | Repo migrations **not** recorded on TEST | **Two:** (1) `20260720121000` — SSO identity bridge, **deliberately deferred** (`SEO_DECISIONS.md` A14); (2) `20260724130000` — Recommendation Generation, **deliberately absent after its documented 2026-07-24 rollback** (locally verified; locked in Git; needs separate approval before TEST re-application) |
 > | Canonical `main` | `9cb3676` (Recommendation Generation Stages 1–2 locked and merged) |
-> | Roadmap Backend | Design only; not implemented (`SEO_ROADMAP_BACKEND_ARCHITECTURE.md`) |
+> | Roadmap Backend | Design only; not implemented (`SEO_ROADMAP_BACKEND_ARCHITECTURE.md`; approved architecture plans → periods → items). Roadmap frontend is mock-backed only. |
 >
 > **How to read the rest of this document:** numbers such as "41 files", "40/41
 > applied", "the one pending migration" and "40 (or 41)" are the 2026-07-24 snapshot

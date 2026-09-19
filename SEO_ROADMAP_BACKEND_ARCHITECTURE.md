@@ -2,40 +2,140 @@
 
 > ## ⛔ DESIGN ONLY — NOT IMPLEMENTED
 >
-> **Status (2026-09-19):** this is the **current Roadmap Backend design
-> document** and the *only* Roadmap Backend artefact that exists. **Nothing in it
-> has been built.** Canonical `main` (`9cb3676`) contains **no** Roadmap
-> migration, **no** `seo_roadmap_items` (or any other Roadmap) table, **no**
-> `seo_roadmap_generate` RPC, and **no** Supabase Roadmap service. The existing
-> `/seo/roadmap` page and `src/services/roadmapService.ts` are **mock-data only**
+> **Status (2026-09-19):** this is the Roadmap Backend design document and the
+> *only* Roadmap Backend artefact that exists. **Nothing in it has been built.**
+> The repository (`main` at `9cb3676`, plus documentation-only commits) contains
+> **no** Roadmap migration, **no** Roadmap table (of any shape), **no** Roadmap
+> generation RPC, and **no** Supabase Roadmap service. The existing `/seo/roadmap`
+> page and `src/services/roadmapService.ts` are **mock-backed UI/service only**
 > in every data mode (no `runWithServiceAdapter`, no Supabase call). The locked
 > `seo_report_generate` RPC still reports `roadmap` as `unavailable`. Roadmap
-> Backend implementation has **not been started and has not been approved**; it
-> requires a separate, explicitly-approved task.
+> Backend implementation has **not been started**; it requires a separate,
+> explicitly-approved task.
 >
-> **What this design specifies (unchanged):** a **single** new table,
-> `seo_roadmap_items`, and **one** guarded `SECURITY DEFINER` generation RPC,
-> `seo_roadmap_generate(p_website_id uuid)`, with month/week period bucketing held
-> *as columns of the items table*, plus wiring the read functions through
-> `runWithServiceAdapter` (§3, §4, §10). **It does not specify a
-> `plans → periods → items` three-level hierarchy.** If a multi-level model is
-> desired, this document must be revised and re-approved *before* any
-> implementation; nothing here should be read as having approved one.
+> ### ✅ Approved architecture (2026-09-19): `plans → periods → items`
 >
-> **Reconciliation notes applied 2026-09-19 (facts only; no design change):**
-> §0.1 said "five exported functions" while listing seven — corrected to seven
-> (matches `roadmapService.ts`); "five of its six upstream fetches" clarified to
-> five of six upstream *sources*; the `src/services/supabase/` file count and the
-> Recommendation Generation dependency status (§4.3) were updated. Everything else,
-> including the "Verified against … `a594d1d` / `71ac8fd`" header, is the
-> 2026-07-24 record and is preserved.
+> The operator has approved a **three-level** Roadmap Backend architecture:
+> a **plan** contains **periods**, and a **period** contains **items**.
+> **This supersedes the earlier flat single-table design** (`seo_roadmap_items`
+> plus `seo_roadmap_generate … RETURNS SETOF seo_roadmap_items`) that §3–§7 and
+> §10 of this document describe. Those sections are kept **only as historical
+> reference for the product behaviour and rules they analyse**; they are **not**
+> the design to implement — see the amendment section directly below for exactly
+> what carries over, what is superseded, and what is TBD.
 >
-> **Dependency status:** the on-page-recommendation source this design reads
-> (§4.3) is now real — Recommendation Generation Stages 1–2 are locked and on
-> `main` — but the RPC's migration is **not applied to `Digi_SEO_Test`**, so on
-> TEST that source is still empty. Current project state:
-> `SEO_CONTEXT_HANDOVER.md` §0; decision record `SEO_DECISIONS.md` A19; document
-> classification `docs/markdown/PROJECT_DOCUMENTATION_INDEX.md`.
+> The three-level design's own detailed document is **not among the surviving
+> repository files**. Nothing beyond the hierarchy itself has been reconstructed
+> or invented here: every detail not supported by surviving evidence or an
+> existing approved decision is marked **TBD**. Nothing was reconstructed from any
+> earlier, lost worktree.
+>
+> **Dependency status:** the on-page-recommendation source (§4.3) is now real —
+> Recommendation Generation Stages 1–2 are locked and on `main` — but that RPC's
+> migration is **not applied to `Digi_SEO_Test`**, so on TEST that source is still
+> empty. Current project state: `SEO_CONTEXT_HANDOVER.md` §0; decision record
+> `SEO_DECISIONS.md` A19; classification in
+> `docs/markdown/PROJECT_DOCUMENTATION_INDEX.md`.
+>
+> **Earlier reconciliation notes (2026-09-19, facts only):** §0.1 said "five
+> exported functions" while listing seven — corrected to seven (matches
+> `roadmapService.ts`); "five of its six upstream fetches" clarified to five of six
+> upstream *sources*; the `src/services/supabase/` file count and the
+> Recommendation Generation dependency status (§4.3) were updated. The
+> "Verified against … `a594d1d` / `71ac8fd`" header is the 2026-07-24 record and is
+> preserved.
+
+---
+
+## Approved architecture amendment (2026-09-19): plans → periods → items
+
+### A.1 The decision
+
+The Roadmap Backend architecture to be built is **`plans → periods → items`**.
+It replaces the flat single-table model of the original design. Roadmap Backend
+remains **DESIGN ONLY — NOT IMPLEMENTED**: no migration, RPC, table or service
+has been created and none is authorised by this amendment.
+
+### A.2 How to read the rest of this document
+
+| Section | Status under the approved model |
+|---|---|
+| §0, §0.1 — current-state findings | **Still valid** (facts about the repository; §0.1's "no adapter dispatch" finding is the starting point for any backend). |
+| §1 — sources, real-table columns, field translations, RLS/role convention | **Still valid.** |
+| §2 — the existing mock heuristic | **Still valid** as the product behaviour to be formalised server-side. |
+| §3 — database model (`seo_roadmap_items`, its RLS, the `manual_strategy` note) | **SUPERSEDED.** Flat single-table model; do not implement. The RLS *convention* in §1.4 stands; per-table policies must be re-derived for the three-level model (TBD). |
+| §4.2 authorization, §4.3 source selection, §4.5 truthfulness/provenance | **Still valid** as rules/principles. |
+| §4 intro, §4.1 contract, §4.4 replace-to-match, §5, §6, §7 | **SUPERSEDED as written** (they are keyed to a flat `seo_roadmap_items` row, its `source_fingerprint`, `is_current` and `superseded_by`). Their *intent* is retained as product requirements (see A.4); its expression on the three-level model is **TBD**. |
+| §8 downstream integrations, §9 role gating | **Still valid** as behaviour; the concrete service surface is TBD. |
+| §10 implementation plan | **SUPERSEDED** (flat-table steps). The five-step *process* (architecture → Stage 1 backend → Stage 2 frontend → verification → lock decision) still applies. |
+| §11 verification against the repository | **Still valid** (repo facts). |
+
+### A.3 What the approved model decides
+
+| Level | Decided | Not decided (TBD) |
+|---|---|---|
+| **Plan** | The top-level container of a roadmap for a website. Every SEO record must be linked to a website URL (project rule 6), so a plan is website-scoped. | Table name and columns; whether a website has one plan or several; plan lifecycle/versioning and regeneration semantics; plan-level status and summary fields. |
+| **Period** | A child of a plan: a segment of the plan's timeline that groups items. | Period granularity (month, week, another unit, or user-defined) and how many periods a plan has; period boundaries and ordering; period-level fields and status. |
+| **Item** | A child of a period: an individual roadmap action. | Exact item columns and which content fields live on the item versus the period; identity/dedup key; how an item moves between periods on regeneration. |
+
+### A.4 Product behaviour and requirements that carry over unchanged
+
+These come from surviving evidence (§0–§2, §4.2–§4.5, §8–§9 of this document;
+`src/types/roadmap.ts`; the mock in `src/mocks/roadmapMockData.ts`) and are not
+altered by the model change:
+
+- **A 90-day roadmap generated for a website from real module findings.** The
+  frontend contract today exposes `month_number` (1–3), `week_number` (1–12) and
+  `due_period` (`week_1`…`week_12`); how those map onto *periods* is TBD.
+- **Six generation sources and their field translations** (audit issue, on-page
+  recommendation, performance decline, off-page opportunity, AI-visibility gap,
+  competitor gap — §1.2/§1.3). `content_gap` and `manual_strategy` exist in the
+  frontend type but are not generated by anything today and remain out of scope.
+- **The mock's selection heuristic** (month 1 = top 4 audit issues, month 2 = top 4
+  on-page recommendations, month 3 = top 8 from the pooled remaining sources,
+  ranked by priority weight high=3/medium=2/low=1 — §2.2) as the behaviour to
+  formalise; the mapping to periods is TBD.
+- **Item content the product already shows:** title, explanation, related module,
+  source, priority, expected impact, effort, risk, owner, and status
+  (`planned` / `in_progress` / `blocked` / `completed` / `skipped`). Their exact
+  placement on the three-level model is TBD.
+- **Safety refinements to source selection** (§4.3), e.g. only `open`/`in_review`
+  audit issues, exclusion of terminal-status diagnoses/opportunities.
+- **Authorization principles** (§4.2, §9): generation limited to owner / admin /
+  team_member (plus global admin); clients read-only; one non-leaking denial
+  message; workspace/actor derived server-side; accept only the website identity
+  from the client; advisory-lock serialisation; `anon`/`PUBLIC` denied. The exact
+  RPC set and signatures are TBD.
+- **Human-touched work is never silently overwritten or auto-retired** (the intent
+  of §4.4 items 4–5): an item a person has started, blocked, completed or skipped
+  must survive regeneration.
+- **Truthfulness/provenance** (§4.5): rule-based, no AI/LLM claims.
+- **Frontend rules:** mock mode preserved; reads through `runWithServiceAdapter`
+  with no silent mock fallback in Supabase mode; role gating is a usability layer
+  only (§9).
+- **Downstream consumers** (§8): the Dashboard Roadmap widget; the locked Reports
+  RPC's roadmap counts stay out of scope without a separate approved extension.
+
+### A.5 TBD — not supported by surviving evidence or an existing approved decision
+
+Table names, columns, constraints and indexes for all three levels · period
+granularity, count and boundaries · plan cardinality per website and
+lifecycle/versioning · how the mock's positional week scheduling (§2.2 point 4)
+maps onto periods and how schedule drift is absorbed · item identity/dedup key and
+supersession semantics · plan/period status and roll-up summary for
+`fetchRoadmapSummary` and the Dashboard · per-table RLS · generation RPC set,
+signatures and return types · status-update path · read-service surface (the seven
+current `roadmapService.ts` exports map onto a three-level model in ways not yet
+specified) · migration plan and verification plan · any extension to Reports'
+roadmap counts.
+
+### A.6 Explicit non-claims
+
+No migration, table, RPC or service exists. Implementation has not been started or
+authorised. Nothing here was reconstructed from any earlier, lost worktree. Do not
+implement §3–§7 or §10 as written.
+
+---
 
 **Role:** the complete architecture design for closing the Roadmap backend
 gap identified in `SEO_RELEASE_ROADMAP.md` §4.2 and §3 ("Roadmap backend
@@ -344,6 +444,9 @@ shared-workspace table:
 
 ## 3. Database Model (additive — one new table, unlike Recommendation's column-additions)
 
+> **[SUPERSEDED 2026-09-19 — flat single-table design]** The approved architecture is `plans → periods → items` (see the amendment at the top). The single-table model below is retained as historical reference only; do not implement it. Table/column details for the three-level model are TBD.
+
+
 ### 3.1 New table `seo_roadmap_items`
 
 ```
@@ -449,6 +552,9 @@ part of what `generateRoadmapFromFindings` does today**, so per the
 
 ## 4. Generation Rules (the guarded RPC's logic, described — not implemented)
 
+> **[SUPERSEDED 2026-09-19 — flat single-table design]** §4.2 (authorization), §4.3 (source selection) and §4.5 (provenance) remain valid rules. The contract below and §4.4 are keyed to the flat `seo_roadmap_items` row and are superseded as written; their intent (idempotent regeneration; human-touched items never overwritten) carries over, its expression on the three-level model is TBD.
+
+
 **`public.seo_roadmap_generate(p_website_id uuid) RETURNS SETOF
 public.seo_roadmap_items`** — returns the canonical current roadmap set
 after persistence, matching the return-shape convention this task's own
@@ -521,6 +627,9 @@ verified behavior, not simplifications).
 
 ### 4.4 Selection, scheduling, and the three-way replace-to-match
 
+> **[SUPERSEDED 2026-09-19 — flat single-table design]** Written for a flat items table (`source_fingerprint`, `is_current`, `superseded_by` on the item). Superseded as written; TBD on plans → periods → items. The selection rule (steps 1–2) and the never-overwrite-human-touched-items rule (cases 4–5) are the retained product behaviour.
+
+
 1. Rank month-1 candidates (issue-derived) by priority weight, take top 4;
    rank month-2 candidates (on-page recs) by priority, take top 4; pool
    month-3 candidates (4 sources), rank by priority, take top 8 — identical
@@ -576,6 +685,9 @@ recorded but not required.
 
 ## 5. Deduplication (summary — full mechanics in §4.4/§3.1)
 
+> **[SUPERSEDED 2026-09-19 — flat single-table design]** Flat-table dedup key; TBD for the three-level model.
+
+
 One stable key: `(website_id, source_fingerprint)`, partial-unique
 `WHERE is_current`. Because `source_fingerprint` encodes the underlying
 source row's own stable id (or, for competitor gaps, the deterministic
@@ -587,6 +699,9 @@ problem identified in §2.2.
 ---
 
 ## 6. Update Strategy (summary — full mechanics in §4.4)
+
+> **[SUPERSEDED 2026-09-19 — flat single-table design]** Flat-table update strategy; TBD for the three-level model.
+
 
 | Scenario | Result |
 |---|---|
@@ -600,6 +715,9 @@ problem identified in §2.2.
 ---
 
 ## 7. Status-Update Path (simpler than a guarded transition RPC — justified)
+
+> **[SUPERSEDED 2026-09-19 — flat single-table design]** Targets the flat items table; the status-update path for items within periods is TBD.
+
 
 Unlike Off-Page Authority's `seo_authority_opportunity_transition` (a
 guarded RPC needed because opportunity status changes interact with
@@ -645,6 +763,9 @@ in this design forecloses that.
 ---
 
 ## 10. Implementation Plan (steps only — no code)
+
+> **[SUPERSEDED 2026-09-19 — flat single-table design]** Step 2 (a single `seo_roadmap_items` table and `seo_roadmap_generate(uuid) RETURNS SETOF seo_roadmap_items`) is superseded. The five-step process still applies; the three-level content of Stage 1/2 is TBD and needs its own approved design before any implementation.
+
 
 Follows the same five-step sequence as Competitor Benchmarking and
 Recommendation Generation, per this task's own stated intent to keep using
