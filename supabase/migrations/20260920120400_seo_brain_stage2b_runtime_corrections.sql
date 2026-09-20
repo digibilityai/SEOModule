@@ -30,7 +30,8 @@
 
 -- ---------------------------------------------------------------------------
 -- 1. Host normalizer: reject ASCII whitespace and C0/DEL control characters in
---    the host/port, and mirror the URL parser's tab/newline handling.
+--    the host/port, mirror the URL parser's tab/newline handling, and trim each
+--    end of the input with the set that end actually uses.
 --
 -- THE DEFECT. The authority pattern was '^[^:\[\]/?#]+(:[0-9]*)?$'. A space is
 -- none of the excluded characters, so 'not a url' matched and was returned
@@ -45,9 +46,25 @@
 --     whole input by the URL parser before anything else is read, so
 --     'exa<TAB>mple.com' normalizes to 'example.com' in TypeScript. Removing
 --     them here is a single documented spec step, not a parser.
---   * Leading and trailing C0 controls and spaces are STRIPPED. btrim/1 strips
---     only the space character, so a lone form feed survived and was returned
---     as a host. The trim is widened to the same set the parser uses.
+--   * The trim is ASYMMETRIC, because the TypeScript twin is. It calls JS
+--     String.trim() on the RAW value and only THEN prefixes 'https://' for a
+--     scheme-less input, so the URL parser's own leading trim never sees the
+--     start of the caller's string. The two ends therefore differ:
+--       - LEADING: JS String.trim() removes ASCII whitespace only, that is
+--         TAB, LF, VT, FF, CR and space. A leading NUL, SOH or US survives
+--         into the authority and fails the parse. So the leading trim is
+--         '[[:space:]]', which is exactly that set. btrim/1 stripped only the
+--         space character, so a lone form feed survived and was returned as a
+--         host; that is the bug being fixed, and this fixes it without
+--         admitting a leading control character.
+--       - TRAILING: after prefixing, the caller's tail IS the parser's tail,
+--         and the parser strips trailing C0-control-or-space. That is chr(1)
+--         through chr(32). DEL (U+007F) is deliberately NOT in this range: it
+--         is not a C0 control, the parser does not strip it, and it must fall
+--         through to the forbidden-character check below.
+--     A trailing NUL is the one input where the two sides cannot be compared:
+--     PostgreSQL text cannot contain chr(0) at all, so SQL can never receive
+--     that value.
 --   * Every other ASCII whitespace or control character (space, VT, FF and the
 --     rest of C0, plus DEL) inside the host or port is a PARSE FAILURE. This is
 --     asserted on the authority AFTER userinfo and path/query/fragment have
@@ -59,10 +76,17 @@
 -- currently valid host is ASCII letters, digits, dots, hyphens and an optional
 -- port, none of which is in the rejected set. Nothing is broadened; the only
 -- inputs whose result changes are ones that were previously accepted wrongly.
--- No public-suffix reduction, no IDN/punycode handling and no further URL
--- parsing is attempted here. The known remaining divergence, a non-ASCII host
--- that TypeScript would punycode, is recorded in SEO_BRAIN_MODULE_INTERFACE.md
--- rather than papered over.
+--
+-- WHAT THIS IS NOT. This is NOT a WHATWG URL parser and does not claim full
+-- fidelity to one. It corrects whitespace and control handling at the machine
+-- boundary and nothing else. No public-suffix reduction, no IDN/punycode
+-- conversion, no IPv4 canonicalization of 0x7f.1 or 2130706433, no backslash
+-- as a path separator and no percent-decoding of a host are attempted. Those
+-- remaining divergences are PRE-EXISTING and every one of them fails CLOSED:
+-- SQL returns a value that can never equal a canonical host Brain would send,
+-- so the comparison refuses rather than mismatching. They are recorded in
+-- SEO_BRAIN_MODULE_INTERFACE.md rather than papered over, and deliberately not
+-- fixed by rewriting a URL parser in PL/pgSQL.
 --
 -- Signature, volatility, security mode, search_path and grants are unchanged:
 -- public.seo_brain_normalize_host(text) -> text, IMMUTABLE, SECURITY INVOKER,
@@ -79,6 +103,16 @@ AS $$
 DECLARE
   -- ASCII tab, LF and CR: removed from the input by the URL parser.
   c_strip     constant text := chr(9) || chr(10) || chr(13);
+  -- LEADING trim: exactly JS String.trim()'s ASCII set, which is what the
+  -- TypeScript twin applies to the raw value before it prefixes a scheme.
+  -- '[[:space:]]' is TAB, LF, VT, FF, CR and space. A leading DEL or other
+  -- C0 control is deliberately NOT trimmed: it must reach c_forbidden below.
+  c_lead      constant text := '[[:space:]]';
+  -- TRAILING trim: the URL parser's own trailing strip, C0-control-or-space,
+  -- which is chr(1) through chr(32). Written as an explicit range because
+  -- '[:cntrl:]' would also pull in DEL (chr(127)), which the parser does NOT
+  -- strip. chr(0) is omitted because PostgreSQL text cannot contain it.
+  c_trail     constant text := '[' || chr(1) || '-' || chr(32) || ']';
   -- Anything in this class is forbidden in a host or a port. [:cntrl:] covers
   -- C0 and DEL; [:space:] covers space, tab, LF, VT, FF and CR. The two
   -- overlap on purpose: neither alone covers both space and DEL.
@@ -92,10 +126,10 @@ DECLARE
 BEGIN
   v_raw := coalesce(p_website_url, '');
 
-  -- Strip leading/trailing C0-control-or-space, as the parser does, then remove
-  -- every ASCII tab/LF/CR anywhere in the input, also as the parser does.
-  v_raw := regexp_replace(v_raw, '^' || c_forbidden || '+', '');
-  v_raw := regexp_replace(v_raw, c_forbidden || '+$', '');
+  -- Trim each end with the set that end actually uses (see the header), then
+  -- remove every ASCII tab/LF/CR anywhere in the input, as the parser does.
+  v_raw := regexp_replace(v_raw, '^' || c_lead || '+', '');
+  v_raw := regexp_replace(v_raw, c_trail || '+$', '');
   v_raw := translate(v_raw, c_strip, '');
 
   IF v_raw = '' THEN
@@ -300,4 +334,4 @@ COMMENT ON TABLE public.seo_brain_website_links IS
   'Human-authorized mapping from a Digi Brain businessId plus canonical host to one SEO website. normalized_host and workspace_id are trigger-derived. service_role holds SELECT only (20260920120400): the machine identity has no path to creating a link.';
 
 COMMENT ON FUNCTION public.seo_brain_normalize_host(text) IS
-  'Canonical machine-boundary host. Mirrors Digi Brain normalizeWebsiteHost. Rejects ASCII whitespace and C0/DEL control characters in the host or port (20260920120400). Performs no IDN/punycode conversion and no public-suffix reduction.';
+  'Canonical machine-boundary host. Mirrors Digi Brain normalizeWebsiteHost for whitespace and control characters: leading trim is ASCII whitespace only, trailing trim is C0-or-space, and any whitespace or C0/DEL control left in the host or port fails the parse (20260920120400). NOT a full WHATWG parser: no IDN/punycode, no public-suffix reduction, no IPv4 canonicalization, no backslash-as-separator. Those divergences fail closed.';

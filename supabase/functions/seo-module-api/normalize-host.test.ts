@@ -67,6 +67,10 @@ describe("normalizeWebsiteHost whitespace and control characters", () => {
   const CR = String.fromCharCode(0x0d);
   const FF = String.fromCharCode(0x0c);
   const VT = String.fromCharCode(0x0b);
+  const NUL = String.fromCharCode(0x00);
+  const SOH = String.fromCharCode(0x01);
+  const US = String.fromCharCode(0x1f);
+  const DEL = String.fromCharCode(0x7f);
 
   const cases: Array<[string, string | null]> = [
     // 1. Removed by the parser, so these normalize.
@@ -93,6 +97,37 @@ describe("normalizeWebsiteHost whitespace and control characters", () => {
     ["https://example.com/x#a b", "example.com"],
     ["https://us er:pa ss@example.com/x", "example.com"],
     [`https://exa${TAB}mple.com:8443/p a th`, "example.com:8443"],
+    // 4. The two ends of the string are NOT symmetric, and this is the source
+    //    of truth the SQL twin is held to.
+    //
+    //    LEADING. String.trim() removes ASCII whitespace only, and the scheme
+    //    is prefixed afterwards, so the URL parser's own leading strip never
+    //    reaches the start of the caller's value. A leading C0 control or DEL
+    //    therefore survives into the host and fails the parse.
+    [`${NUL}example.com`, null],
+    [`${SOH}example.com`, null],
+    [`${US}example.com`, null],
+    [`${DEL}example.com`, null],
+    [`${NUL}https://example.com`, null],
+    [`${DEL}https://example.com`, null],
+    [NUL, null],
+    [SOH, null],
+    [US, null],
+    [DEL, null],
+    //    TRAILING. After prefixing, the caller's tail IS the parser's tail, so
+    //    the parser's C0-control-or-space strip applies and these normalize.
+    [`example.com${SOH}`, "example.com"],
+    [`example.com${US}`, "example.com"],
+    [`example.com${NUL}`, "example.com"],
+    //    ...but DEL is not a C0 control, so the parser does not strip it.
+    [`example.com${DEL}`, null],
+    //    Non-space ASCII whitespace at either end is trimmed by String.trim().
+    [`${FF}example.com`, "example.com"],
+    [`${VT}example.com`, "example.com"],
+    [`example.com${FF}`, "example.com"],
+    [`example.com${VT}`, "example.com"],
+    [`${CR}${LF}example.com`, "example.com"],
+    [`example.com${CR}${LF}`, "example.com"],
   ];
 
   it.each(cases)("normalizes %j", (input, expected) => {

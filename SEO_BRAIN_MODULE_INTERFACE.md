@@ -419,24 +419,65 @@ Additive. Creates no table, no policy and no capability.
 1. **Host normalizer parity.** `seo_brain_normalize_host('not a url')` returned
    `'not a url'` where TypeScript returns `null`, because the authority pattern
    excluded `:[]/?#` and nothing else, so whitespace passed through as if it
-   were a canonical host. The corrected function mirrors the URL parser: ASCII
-   tab, LF and CR are removed from the input; leading and trailing C0 controls
-   and spaces are trimmed; **any other ASCII whitespace or C0/DEL control in the
-   host or port fails the parse.** The check runs on the authority after
-   userinfo and path/query/fragment are removed, because those parts may legally
-   contain a space and Digi Brain normalizes them successfully. Signature,
-   `IMMUTABLE`, security mode, `search_path` and grants are unchanged, and no
-   canonical valid-host output moves.
+   were a canonical host. The corrected function removes ASCII tab, LF and CR
+   from the input, trims each end, and then **fails the parse on any remaining
+   ASCII whitespace or C0/DEL control in the host or port.** The check runs on
+   the authority after userinfo and path/query/fragment are removed, because
+   those parts may legally contain a space and Digi Brain normalizes them
+   successfully. Signature, `IMMUTABLE`, security mode, `search_path` and grants
+   are unchanged, and no canonical valid-host output moves.
+
+   **The trim is asymmetric, and that is deliberate.** Independent review caught
+   a fail-open defect in the first draft of this migration, while it was still
+   unapplied anywhere: it trimmed **both** ends with `[[:space:][:cntrl:]]`, so
+   `<NUL>example.com`, `<SOH>example.com` and `<DEL>example.com` came back as a
+   clean `example.com` while TypeScript returns `null` for all three. The twin
+   is asymmetric because it calls JS `String.trim()` on the raw value and only
+   then prefixes `https://`, so the URL parser's own leading strip never reaches
+   the start of the caller's string.
+
+   | End | Class | Why |
+   |---|---|---|
+   | Leading | `[[:space:]]` (TAB, LF, VT, FF, CR, space) | Exactly JS `String.trim()`'s ASCII set. A leading C0 control or DEL is **not** trimmed; it reaches the host and fails the parse. |
+   | Trailing | `chr(1)` to `chr(32)` | After prefixing, the caller's tail **is** the parser's tail, so the parser's C0-control-or-space strip applies. DEL is excluded on purpose: it is not a C0 control, so the parser does not strip it either. |
+
+   One input is not comparable and is stated rather than hidden: a **trailing
+   NUL**, which TypeScript normalizes and the SQL class does not reach. It is
+   unreachable in practice because PostgreSQL `text` cannot contain `chr(0)` at
+   all, so the function can never be handed that value.
+
+   The corpus in `normalize-host.test.ts`, the model in
+   `normalize-host-sql-parity.test.ts` and Section 0 of the operator
+   verification script all carry leading NUL/SOH/US/DEL, the trailing
+   counterparts, and the FF/VT/CRLF cases. The verification script's
+   prerequisite additionally probes for **both** mistakes, the original
+   whitespace-admitting version and the symmetric-trim version, before it
+   mutates anything.
 2. **Privilege hardening** (below).
 3. **Corrected bootstrap rationale**, recorded as SQL comments on the affected
    objects.
 
-**Known remaining normalizer divergence, recorded rather than hidden.** A
-non-ASCII host is punycoded by TypeScript (`münchen.de` to `xn--mnchen-3ya.de`)
-and returned unchanged by SQL. IDN conversion is not implementable as a small,
-safe correction in PL/pgSQL, and implementing a speculative URL parser in SQL is
-explicitly out of scope. An already-punycoded host passes both sides
-identically. No TEST website uses an IDN host today.
+**Known remaining normalizer divergences, recorded rather than hidden.** This
+function is **not** a WHATWG URL parser and does not claim full fidelity to one.
+It corrects whitespace and control handling and nothing else. The following are
+pre-existing, were not introduced or widened by `20260920120400`, and **every
+one of them fails closed**: SQL returns a value that can never equal a canonical
+host Digi Brain would send, so the comparison refuses rather than mismatching.
+
+| Input | SQL | TypeScript |
+|---|---|---|
+| `münchen.de` | `münchen.de` | `xn--mnchen-3ya.de` |
+| `https://0x7f.1` | `0x7f.1` | `127.0.0.1` |
+| `https://2130706433` | `2130706433` | `127.0.0.1` |
+| `https://example.com\evil.com` | `example.com\evil.com` | `example.com` |
+| `https://exa%20mple.com` | `exa%20mple.com` | `null` |
+| `<NBSP>example.com` | unchanged | `example.com` |
+| `//example.com` | `null` | `example.com` |
+
+IDN conversion, IPv4 canonicalization and backslash-as-separator are not
+implementable as small, safe corrections in PL/pgSQL, and writing a speculative
+URL parser in SQL is explicitly out of scope for Stage 2B. An already-punycoded
+host passes both sides identically, and no TEST website uses an IDN host today.
 
 ### Privilege hardening, and the decision per table
 

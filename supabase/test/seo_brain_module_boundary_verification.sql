@@ -124,6 +124,22 @@ BEGIN
       'PREREQUISITE FAILED: public.seo_brain_normalize_host still admits whitespace in a host. Apply 20260920120400_seo_brain_stage2b_runtime_corrections.sql first.';
   END IF;
 
+  -- Second probe, for the OPPOSITE mistake. A version that trimmed both ends
+  -- with '[[:space:][:cntrl:]]' would pass the probe above and still be wrong:
+  -- it would strip a leading control character and hand back a clean canonical
+  -- host for a value TypeScript refuses to parse. Both probes together pin the
+  -- asymmetric trim the corrected migration actually ships.
+  IF public.seo_brain_normalize_host(E'\x7fexample.com') IS NOT NULL
+     OR public.seo_brain_normalize_host(E'\x01example.com') IS NOT NULL THEN
+    RAISE EXCEPTION
+      'PREREQUISITE FAILED: public.seo_brain_normalize_host trims a leading control character and returns a clean host, which TypeScript rejects. The applied 20260920120400 is not the corrected version.';
+  END IF;
+  -- ...and the trailing end must still normalize, or the trim is too narrow.
+  IF public.seo_brain_normalize_host(E'example.com\x01') IS DISTINCT FROM 'example.com' THEN
+    RAISE EXCEPTION
+      'PREREQUISITE FAILED: public.seo_brain_normalize_host does not strip a trailing C0 control, which the URL parser does. The applied 20260920120400 is not the corrected version.';
+  END IF;
+
   -- This script mutates. It must never touch a project holding real customers.
   IF EXISTS (SELECT 1 FROM public.seo_brain_website_links WHERE business_id LIKE 'brain-biz-%')
      OR EXISTS (SELECT 1 FROM public.seo_brain_actor_links WHERE brain_actor_id LIKE 'BRAINVERIFY-actor-%')
@@ -194,7 +210,42 @@ BEGIN
       ('https://example.com/?q=a b',          'example.com'),
       ('https://example.com/x#a b',           'example.com'),
       ('https://us er:pa ss@example.com/x',   'example.com'),
-      (E'https://exa\tmple.com:8443/p a th',  'example.com:8443')
+      (E'https://exa\tmple.com:8443/p a th',  'example.com:8443'),
+      -- --------------------------------------------------------------------
+      -- The two ends of the input are NOT symmetric, and a symmetric trim was
+      -- the fail-OPEN defect independent review caught before this migration
+      -- was ever applied. TypeScript runs String.trim() on the RAW value and
+      -- only then prefixes 'https://', so the URL parser's leading strip never
+      -- reaches the start of the caller's string.
+      --
+      -- LEADING: a C0 control or DEL is NOT trimmed. It survives into the
+      -- authority and fails the parse, exactly as TypeScript fails it. A
+      -- symmetric '[[:space:][:cntrl:]]' trim would have returned a clean
+      -- 'example.com' for every one of these.
+      (E'\x01example.com',                    NULL),
+      (E'\x1fexample.com',                    NULL),
+      (E'\x7fexample.com',                    NULL),
+      (E'\x01https://example.com',            NULL),
+      (E'\x7fhttps://example.com',            NULL),
+      (E'\x01',                               NULL),
+      (E'\x1f',                               NULL),
+      (E'\x7f',                               NULL),
+      -- TRAILING: after the scheme is prefixed the caller's tail IS the
+      -- parser's tail, so the parser's C0-control-or-space strip applies.
+      (E'example.com\x01',                    'example.com'),
+      (E'example.com\x1f',                    'example.com'),
+      -- ...but DEL is not a C0 control, so it is not stripped and the host
+      -- fails. This is why the trailing class stops at chr(32).
+      (E'example.com\x7f',                    NULL),
+      -- Non-space ASCII whitespace at either end is trimmed at both ends.
+      (E'\fexample.com',                      'example.com'),
+      (E'\x0bexample.com',                    'example.com'),
+      (E'example.com\f',                      'example.com'),
+      (E'example.com\x0b',                    'example.com'),
+      (E'\r\nexample.com',                    'example.com'),
+      (E'example.com\r\n',                    'example.com')
+      -- NUL is deliberately absent: PostgreSQL text cannot contain chr(0), so
+      -- the function can never be handed it and there is nothing to assert.
     ) AS t(input, expected)
   LOOP
     IF public.seo_brain_normalize_host(c.input) IS DISTINCT FROM c.expected THEN
