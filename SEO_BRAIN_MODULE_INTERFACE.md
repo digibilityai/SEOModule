@@ -395,7 +395,8 @@ is now the authoritative truth and it says otherwise.
 | `20260920120100_seo_brain_delegated_read_rpcs.sql` | **applied** |
 | `20260920120200_seo_brain_actor_links.sql` | **applied** |
 | `20260920120300_seo_brain_delegated_write_rpcs.sql` | **applied** |
-| `20260920120400_seo_brain_stage2b_runtime_corrections.sql` | **NOT applied** |
+| `20260920120400_seo_brain_stage2b_runtime_corrections.sql` | **applied** |
+| `20260920120500_seo_brain_normalizer_locale_correction.sql` | **NOT applied** |
 
 TEST stands at 46 local = 46 remote migrations through `20260920120300`. The
 long-standing `20260720121000` (SSO identity bridge) discrepancy is resolved:
@@ -438,7 +439,7 @@ Additive. Creates no table, no policy and no capability.
 
    | End | Class | Why |
    |---|---|---|
-   | Leading | `[[:space:]]` (TAB, LF, VT, FF, CR, space) | Exactly JS `String.trim()`'s ASCII set. A leading C0 control or DEL is **not** trimmed; it reaches the host and fails the parse. |
+   | Leading | `chr(9)` to `chr(13)` plus `chr(32)` | Exactly JS `String.trim()`'s ASCII set, written out. A leading C0 control or DEL is **not** trimmed; it reaches the host and fails the parse. |
    | Trailing | `chr(1)` to `chr(32)` | After prefixing, the caller's tail **is** the parser's tail, so the parser's C0-control-or-space strip applies. DEL is excluded on purpose: it is not a C0 control, so the parser does not strip it either. |
 
    One input is not comparable and is stated rather than hidden: a **trailing
@@ -457,6 +458,45 @@ Additive. Creates no table, no policy and no capability.
 3. **Corrected bootstrap rationale**, recorded as SQL comments on the affected
    objects.
 
+### The locale correction: `20260920120500`
+
+`20260920120400` got the asymmetry right and the **character class** wrong. It
+wrote the leading trim as the POSIX class `[[:space:]]`, assuming that equals JS
+`String.trim()`'s ASCII set. The controlled TEST run of the verification script
+disproved that in Section 0, before any mutation:
+
+```
+P0001: normalizer parity failed for "<US>example.com": expected <NULL>, got example.com
+```
+
+Measured on `Digi_SEO_Test` rather than assumed:
+
+```sql
+SELECT string_agg(i::text, ',' ORDER BY i)
+  FROM generate_series(1,32) i WHERE chr(i) ~ '[[:space:]]';
+--> 9,10,11,12,13,28,29,30,31,32
+```
+
+glibc classifies FS, GS, RS and US as space characters. JavaScript does not. So
+a leading U+001C through U+001F was trimmed and a clean canonical host came back
+for a value the twin rejects, which is the same fail-open shape as before, moved
+to four different characters.
+
+**The rule this establishes: a POSIX character class must never be used where
+the result has to match JavaScript or WHATWG behaviour**, because membership is
+decided by the database ctype and not by the standard being mirrored.
+
+| Class | Form in `20260920120500` | Why |
+|---|---|---|
+| Leading trim | explicit `chr(9)-chr(13)`, `chr(32)` | Parity target. Must equal `String.trim()` exactly. |
+| Trailing trim | explicit `chr(1)-chr(32)` | Parity target. Already explicit in `20260920120400`. |
+| Forbidden in authority | explicit `chr(1)-chr(32)`, `chr(127)` **plus** `[:space:][:cntrl:]` | Rejection gate, not a parity target. The explicit floor makes the ASCII part locale-proof; the POSIX classes are **kept** because on this database they also reject U+0085, U+00A0, U+1680, U+2000 to U+200A, U+2028, U+2029, U+202F, U+205F and U+3000. Dropping them would have silently started admitting hosts carrying non-ASCII whitespace, which is the exact direction these corrections exist to prevent. |
+
+Corpus coverage now sweeps ASCII 9 to 13, 28 to 31, 32, SOH and DEL in four
+positions each (leading, trailing, alone, inner), plus IPv4 and IPv6 literals,
+in the TypeScript corpus, the SQL model and Section 0. The script prerequisite
+probes for all three mistakes before it mutates anything.
+
 **Known remaining normalizer divergences, recorded rather than hidden.** This
 function is **not** a WHATWG URL parser and does not claim full fidelity to one.
 It corrects whitespace and control handling and nothing else. The following are
@@ -473,6 +513,7 @@ host Digi Brain would send, so the comparison refuses rather than mismatching.
 | `https://exa%20mple.com` | `exa%20mple.com` | `null` |
 | `<NBSP>example.com` | unchanged | `example.com` |
 | `//example.com` | `null` | `example.com` |
+| `https://[::ffff:192.168.1.1]` | `[::ffff:192.168.1.1]` | `[::ffff:c0a8:101]` |
 
 IDN conversion, IPv4 canonicalization and backslash-as-separator are not
 implementable as small, safe corrections in PL/pgSQL, and writing a speculative

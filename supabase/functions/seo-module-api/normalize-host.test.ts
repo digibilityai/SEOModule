@@ -71,6 +71,9 @@ describe("normalizeWebsiteHost whitespace and control characters", () => {
   const SOH = String.fromCharCode(0x01);
   const US = String.fromCharCode(0x1f);
   const DEL = String.fromCharCode(0x7f);
+  const FS = String.fromCharCode(0x1c);
+  const GS = String.fromCharCode(0x1d);
+  const RS = String.fromCharCode(0x1e);
 
   const cases: Array<[string, string | null]> = [
     // 1. Removed by the parser, so these normalize.
@@ -128,6 +131,32 @@ describe("normalizeWebsiteHost whitespace and control characters", () => {
     [`example.com${VT}`, "example.com"],
     [`${CR}${LF}example.com`, "example.com"],
     [`example.com${CR}${LF}`, "example.com"],
+    // 5. ASCII 28 to 31 (FS, GS, RS, US). These are the characters glibc calls
+    //    whitespace and JavaScript does NOT, which is what broke the SQL twin
+    //    in 20260920120400 and is corrected by 20260920120500. String.trim()
+    //    leaves them, so a LEADING one reaches the host and fails the parse,
+    //    while a TRAILING one is stripped by the URL parser after the scheme is
+    //    prefixed. The asymmetry is the whole point, so both ends are pinned.
+    [`${FS}example.com`, null],
+    [`${GS}example.com`, null],
+    [`${RS}example.com`, null],
+    [`${US}example.com`, null],
+    [`example.com${FS}`, "example.com"],
+    [`example.com${GS}`, "example.com"],
+    [`example.com${RS}`, "example.com"],
+    [`example.com${US}`, "example.com"],
+    [FS, null],
+    [US, null],
+    [`exa${FS}mple.com`, null],
+    [`exa${US}mple.com`, null],
+    // 6. IPv4 and IPv6 literals, with and without a port.
+    ["192.168.1.1", "192.168.1.1"],
+    ["https://192.168.1.1:8443", "192.168.1.1:8443"],
+    ["http://192.168.1.1:80", "192.168.1.1"],
+    ["[::1]", "[::1]"],
+    ["https://[::1]:8443", "[::1]:8443"],
+    ["http://[2001:db8::1]:80", "[2001:db8::1]"],
+    ["https://[2001:DB8::1]", "[2001:db8::1]"],
   ];
 
   it.each(cases)("normalizes %j", (input, expected) => {

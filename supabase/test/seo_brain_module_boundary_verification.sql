@@ -140,6 +140,20 @@ BEGIN
       'PREREQUISITE FAILED: public.seo_brain_normalize_host does not strip a trailing C0 control, which the URL parser does. The applied 20260920120400 is not the corrected version.';
   END IF;
 
+  -- Third probe, for the LOCALE mistake that 20260920120500 corrects. A leading
+  -- FS/GS/RS/US is whitespace to glibc and not to JavaScript, so a normalizer
+  -- whose leading trim is the POSIX class '[[:space:]]' strips it and returns a
+  -- clean canonical host. Both previous probes pass in that state.
+  IF public.seo_brain_normalize_host(E'\x1fexample.com') IS NOT NULL
+     OR public.seo_brain_normalize_host(E'\x1cexample.com') IS NOT NULL THEN
+    RAISE EXCEPTION
+      'PREREQUISITE FAILED: public.seo_brain_normalize_host trims a leading ASCII 28..31, which only glibc treats as whitespace. Apply 20260920120500_seo_brain_normalizer_locale_correction.sql first.';
+  END IF;
+  IF public.seo_brain_normalize_host(E'example.com\x1f') IS DISTINCT FROM 'example.com' THEN
+    RAISE EXCEPTION
+      'PREREQUISITE FAILED: public.seo_brain_normalize_host does not strip a TRAILING ASCII 28..31, which the URL parser does. The applied 20260920120500 narrowed the trailing trim by mistake.';
+  END IF;
+
   -- This script mutates. It must never touch a project holding real customers.
   IF EXISTS (SELECT 1 FROM public.seo_brain_website_links WHERE business_id LIKE 'brain-biz-%')
      OR EXISTS (SELECT 1 FROM public.seo_brain_actor_links WHERE brain_actor_id LIKE 'BRAINVERIFY-actor-%')
@@ -243,9 +257,50 @@ BEGIN
       (E'example.com\f',                      'example.com'),
       (E'example.com\x0b',                    'example.com'),
       (E'\r\nexample.com',                    'example.com'),
-      (E'example.com\r\n',                    'example.com')
+      (E'example.com\r\n',                    'example.com'),
+      -- --------------------------------------------------------------------
+      -- ASCII 28 to 31 (FS, GS, RS, US). THE 20260920120500 DEFECT.
+      -- glibc classifies these four as space characters and JavaScript does
+      -- not, so the POSIX class '[[:space:]]' used by 20260920120400 for the
+      -- leading trim stripped them and returned a clean canonical host for a
+      -- value the TypeScript twin rejects. Measured on this database:
+      --   SELECT string_agg(i::text, ',' ORDER BY i)
+      --     FROM generate_series(1,32) i WHERE chr(i) ~ '[[:space:]]';
+      --   --> 9,10,11,12,13,28,29,30,31,32
+      -- LEADING must fail, because String.trim() leaves them in place.
+      (E'\x1cexample.com',                    NULL),
+      (E'\x1dexample.com',                    NULL),
+      (E'\x1eexample.com',                    NULL),
+      (E'\x1fexample.com',                    NULL),
+      -- TRAILING must still normalize, because after the scheme is prefixed
+      -- the parser's own C0-or-space strip applies. A trim merely narrowed at
+      -- both ends would have broken these.
+      (E'example.com\x1c',                    'example.com'),
+      (E'example.com\x1d',                    'example.com'),
+      (E'example.com\x1e',                    'example.com'),
+      (E'example.com\x1f',                    'example.com'),
+      (E'\x1c',                               NULL),
+      (E'\x1f',                               NULL),
+      (E'exa\x1cmple.com',                    NULL),
+      (E'exa\x1fmple.com',                    NULL),
+      -- --------------------------------------------------------------------
+      -- IPv4 and IPv6 literals, with and without a port, and an uppercase
+      -- IPv6 literal. These prove the correction moved no network-literal
+      -- behaviour.
+      ('192.168.1.1',                         '192.168.1.1'),
+      ('https://192.168.1.1:8443',            '192.168.1.1:8443'),
+      ('http://192.168.1.1:80',               '192.168.1.1'),
+      ('[::1]',                               '[::1]'),
+      ('https://[::1]:8443',                  '[::1]:8443'),
+      ('http://[2001:db8::1]:80',             '[2001:db8::1]'),
+      ('https://[2001:DB8::1]',               '[2001:db8::1]')
       -- NUL is deliberately absent: PostgreSQL text cannot contain chr(0), so
       -- the function can never be handed it and there is nothing to assert.
+      -- An IPv4-mapped IPv6 literal is also absent: the URL parser recompresses
+      -- '[::ffff:192.168.1.1]' to '[::ffff:c0a8:101]' and SQL does not. That
+      -- divergence is pre-existing, fails closed, and is recorded in
+      -- SEO_BRAIN_MODULE_INTERFACE.md rather than fixed with an IPv6
+      -- canonicalizer in PL/pgSQL.
     ) AS t(input, expected)
   LOOP
     IF public.seo_brain_normalize_host(c.input) IS DISTINCT FROM c.expected THEN

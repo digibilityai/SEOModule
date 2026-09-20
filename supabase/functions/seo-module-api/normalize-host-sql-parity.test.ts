@@ -26,21 +26,33 @@ import { normalizeWebsiteHost } from "./normalize-host.ts";
  * of it.
  */
 
-// Postgres '[[:space:][:cntrl:]]' is exactly space + C0 + DEL:
-//   [:space:] = {space, TAB, LF, VT, FF, CR}  (all within \x00-\x20)
-//   [:cntrl:] = \x00-\x1f plus \x7f
-// The union is \x00-\x20 plus \x7f. JS \s is NOT used here: it additionally
-// matches non-ASCII whitespace, which Postgres would not, and the model has to
-// be faithful rather than convenient.
-const FORBIDDEN = /[\u0000-\u0020\u007f]/;
+// WHY NO POSIX CLASS APPEARS IN THIS MODEL, and why that is the whole point.
+// Migration 20260920120400 wrote the leading trim as Postgres '[[:space:]]' on
+// the assumption that it equals JS String.trim()'s ASCII set. The controlled
+// TEST run disproved it in Section 0: on glibc, '[[:space:]]' is
+//   9,10,11,12,13,28,29,30,31,32
+// because FS/GS/RS/US are classified as space characters, which JavaScript does
+// NOT do. A leading U+001C..U+001F was therefore trimmed and a clean canonical
+// host was returned for a value the twin rejects. 20260920120500 writes the
+// parity classes out explicitly, and so does this model. A POSIX class must
+// never be used where the result has to MATCH JavaScript.
+//
+// FORBIDDEN is the one place a POSIX class survives in the SQL, because there
+// it is a REJECTION gate rather than a parity target: '[:space:]'/'[:cntrl:]'
+// reject MORE than ASCII (U+0085, U+00A0, U+2028, U+3000 and friends on this
+// database), and rejecting more fails closed. The explicit chr(1)..chr(32) and
+// chr(127) floor guarantees the ASCII part cannot shrink with the locale. The
+// model mirrors both halves.
+const FORBIDDEN =
+  /[\u0001-\u0020\u007f\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]/;
 // THE TRIM IS ASYMMETRIC, because the TypeScript twin is: it runs JS
 // String.trim() on the RAW value and only then prefixes 'https://', so the URL
 // parser's leading trim never sees the start of the caller's string.
-//   LEADING  = Postgres '[[:space:]]', which is JS String.trim()'s ASCII set.
-//              A leading C0 control (NUL, SOH, US) or DEL is NOT trimmed and
-//              falls through to FORBIDDEN, exactly as TypeScript fails it.
-//   TRAILING = Postgres '[chr(1)-chr(32)]', the parser's own C0-or-space strip.
-//              DEL (\u007f) is excluded on purpose: it is not a C0 control, the
+//   LEADING  = '[chr(9)-chr(13)chr(32)]', JS String.trim()'s ASCII set written
+//              out. A leading C0 control (SOH, FS, GS, RS, US) or DEL is NOT
+//              trimmed and falls through to FORBIDDEN, as TypeScript fails it.
+//   TRAILING = '[chr(1)-chr(32)]', the parser's own C0-or-space strip. DEL
+//              (\u007f) is excluded on purpose: it is not a C0 control, the
 //              parser does not strip it, and it must reach FORBIDDEN.
 const TRIM_LEAD = /^[\u0009-\u000d\u0020]+/;
 const TRIM_TRAIL = /[\u0001-\u0020]+$/;
@@ -161,19 +173,36 @@ describe("seo_brain_normalize_host (modelled) agrees with normalizeWebsiteHost",
     "https://us er:pa ss@example.com/x",
     `https://exa${TAB}mple.com:8443/p a th`,
     // --------------------------------------------------------------------
+    // SYSTEMATIC SWEEP over every ASCII character either side treats
+    // specially: 9..13 (JS whitespace), 28..31 (glibc-only "space", the
+    // 20260920120500 defect), 32 (space), 1 (a plain C0 control) and 127
+    // (DEL). Four positions each: leading, trailing, alone and inner. NUL is
+    // absent because PostgreSQL text cannot contain chr(0).
+    ...[0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x1c, 0x1d, 0x1e, 0x1f, 0x20, 0x01, 0x7f].flatMap(
+      (n) => {
+        const ch = String.fromCharCode(n);
+        return [`${ch}example.com`, `example.com${ch}`, ch, `exa${ch}mple.com`];
+      },
+    ),
+    // IPv4 and IPv6 literals, including a port and an uppercase IPv6 literal.
+    "192.168.1.1",
+    "https://192.168.1.1:8443",
+    "http://192.168.1.1:80",
+    "[::1]",
+    "https://[::1]:8443",
+    "http://[2001:db8::1]:80",
+    "https://[2001:DB8::1]",
+    // --------------------------------------------------------------------
     // LEADING C0 controls and DEL. These are the cases a symmetric
     // '[[:space:][:cntrl:]]' trim got WRONG: it stripped them and returned a
     // clean canonical host, where TypeScript fails the parse. JS String.trim()
     // does not remove them, and the URL parser never sees the start of the
     // caller's string because 'https://' is prefixed first, so they survive
     // into the authority and are rejected there. All four must be null.
-    `${NUL}example.com`,
     `${SOH}example.com`,
     `${US}example.com`,
     `${DEL}example.com`,
-    `${NUL}https://example.com`,
     `${DEL}https://example.com`,
-    NUL,
     SOH,
     US,
     DEL,
@@ -216,7 +245,7 @@ describe("seo_brain_normalize_host (modelled) agrees with normalizeWebsiteHost",
     // 'example.com' for every one of these, which is a fail-OPEN divergence:
     // SQL would hand back a clean canonical host for a value TypeScript
     // refuses to parse.
-    for (const input of [`${NUL}example.com`, `${SOH}example.com`, `${DEL}example.com`]) {
+    for (const input of [`${SOH}example.com`, `${DEL}example.com`]) {
       expect(sqlNormalizeHost(input)).toBeNull();
       expect(normalizeWebsiteHost(input)).toBeNull();
     }
@@ -229,14 +258,49 @@ describe("seo_brain_normalize_host (modelled) agrees with normalizeWebsiteHost",
     expect(sqlNormalizeHost(`example.com${DEL}`)).toBeNull();
     expect(normalizeWebsiteHost(`example.com${DEL}`)).toBeNull();
 
-    // THE ONE INPUT THAT IS NOT COMPARABLE, stated rather than hidden: a
-    // trailing NUL. TypeScript normalizes it to 'example.com' because the URL
-    // parser strips it; the model returns null because the trailing class
-    // starts at chr(1). That gap is unreachable in SQL, because PostgreSQL
-    // text cannot contain chr(0) at all, so the real function can never be
-    // handed this value. It is excluded from the corpus for that reason.
+    // NUL IS EXCLUDED FROM THE CORPUS ENTIRELY, stated rather than hidden.
+    // PostgreSQL text cannot contain chr(0), so the real function can never be
+    // handed a value containing one and the SQL classes all start at chr(1).
+    // The twin does define a behaviour for it, and the model happens to agree,
+    // but neither is authoritative here because the input is unreachable.
     expect(normalizeWebsiteHost(`example.com${NUL}`)).toBe("example.com");
-    expect(sqlNormalizeHost(`example.com${NUL}`)).toBeNull();
+  });
+
+  it("does not trim ASCII 28 to 31, which only glibc calls whitespace", () => {
+    // THE 20260920120500 DEFECT, pinned. Postgres '[[:space:]]' on glibc is
+    // 9,10,11,12,13,28,29,30,31,32. JS String.trim() is 9,10,11,12,13,32. Using
+    // the POSIX class for the leading trim therefore stripped FS/GS/RS/US and
+    // returned a clean canonical host for a value the twin rejects.
+    for (const n of [0x1c, 0x1d, 0x1e, 0x1f]) {
+      const ch = String.fromCharCode(n);
+      expect(sqlNormalizeHost(`${ch}example.com`)).toBeNull();
+      expect(normalizeWebsiteHost(`${ch}example.com`)).toBeNull();
+      // ...but the TRAILING end is the parser's own C0 strip, so these DO
+      // normalize, and a trim that was merely narrowed at both ends would have
+      // broken them.
+      expect(sqlNormalizeHost(`example.com${ch}`)).toBe("example.com");
+      expect(normalizeWebsiteHost(`example.com${ch}`)).toBe("example.com");
+    }
+    // The five JS whitespace characters keep being trimmed at BOTH ends.
+    for (const n of [0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x20]) {
+      const ch = String.fromCharCode(n);
+      expect(sqlNormalizeHost(`${ch}example.com`)).toBe("example.com");
+      expect(normalizeWebsiteHost(`${ch}example.com`)).toBe("example.com");
+    }
+  });
+
+  it("leaves the pre-existing IPv6 canonicalization divergence fail-closed", () => {
+    // An IPv4-mapped IPv6 literal is recompressed by the URL parser and left
+    // alone by SQL. Deferred, not hidden: the SQL output can never equal a
+    // canonical host Digi Brain would send, so the comparison refuses rather
+    // than resolving the wrong site. Fixing it would mean an IPv6 canonicalizer
+    // in PL/pgSQL, which is out of scope for Stage 2B.
+    expect(normalizeWebsiteHost("https://[::ffff:192.168.1.1]")).toBe("[::ffff:c0a8:101]");
+    expect(sqlNormalizeHost("https://[::ffff:192.168.1.1]")).toBe("[::ffff:192.168.1.1]");
+    // Plain IPv6 literals, including an uppercase one, agree exactly.
+    for (const input of ["[::1]", "https://[::1]:8443", "https://[2001:DB8::1]"]) {
+      expect(sqlNormalizeHost(input)).toBe(normalizeWebsiteHost(input));
+    }
   });
 
   it("changes no canonical valid-host output", () => {
