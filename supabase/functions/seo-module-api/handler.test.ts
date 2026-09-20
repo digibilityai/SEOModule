@@ -405,6 +405,28 @@ describe("authenticity and provenance", () => {
     expect(result.provenance.generationMethod).toBeUndefined();
   });
 
+  it("does not claim measurement when no audit has ever completed", async () => {
+    const store = baseStore();
+    // Linked and authorized, but nothing has been crawled yet.
+    store.audits = {};
+    store.findings = {};
+    const { handlerDeps } = deps(store);
+    const result = await handleModuleRequest(
+      moduleRequest({ capability: CAP_READ_TECHNICAL_AUDIT }),
+      "analyse",
+      handlerDeps,
+    );
+
+    // Still a legitimate, genuine empty answer.
+    expect(result.dataAuthenticity).toBe("genuine");
+    expect((result as { findings: unknown[] }).findings).toEqual([]);
+    // But the absence of a run is derived from SEO's own records, not observed
+    // against the customer's site, so it must not be reported as measured.
+    expect(result.observationMethod).toBe("calculated");
+    expect(result.provenance.basis).toBe("derived");
+    expect(result.provenance.generationMethod).toBeUndefined();
+  });
+
   it("reports recommendations as genuine derivations carrying their stored method", async () => {
     const { handlerDeps } = deps();
     const result = await handleModuleRequest(

@@ -433,4 +433,61 @@ describe("execute.recommendations", () => {
     expect(auditStatus.moduleStatus).toBe("queued");
     expect(recStatus.moduleStatus).toBe("completed");
   });
+
+  it("keeps one Business's two websites' operations separate under the same Brain action", async () => {
+    // Operation correlation is keyed on Business + website + capability + Brain
+    // action. One Business can have several websites linked, and reusing a
+    // Brain action id across them must produce two independent operations
+    // rather than one overwriting the other's handle.
+    const store = baseStore();
+    store.links = [
+      ...(store.links ?? []),
+      { businessId: "biz-1", websiteId: "site-b", normalizedHost: "shop.example.com", linkStatus: "active" },
+    ];
+    store.ownership = {
+      ...store.ownership,
+      "site-b": { status: "verified", lastCheckedAt: "2026-09-11T00:00:00.000Z", verifiedAt: "2026-09-11T00:00:00.000Z" },
+    };
+    const { store: live, handlerDeps } = deps(store);
+
+    const siteB = {
+      websiteIdentity: { normalizedHost: "shop.example.com", assessedUrl: "https://shop.example.com/" },
+    };
+
+    const ackA = (await handleModuleRequest(executeRequest(), "execute", handlerDeps)) as {
+      moduleOperationId?: string;
+    };
+    const ackB = (await handleModuleRequest(
+      executeRequest(siteB),
+      "execute",
+      handlerDeps,
+    )) as { moduleOperationId?: string };
+
+    // Two real, distinct operations, not one replayed onto the other.
+    expect(ackA.moduleOperationId).toBeDefined();
+    expect(ackB.moduleOperationId).toBeDefined();
+    expect(ackB.moduleOperationId).not.toBe(ackA.moduleOperationId);
+    expect(live.operations ?? []).toHaveLength(2);
+
+    // Each website's STATUS still resolves to its own handle, and a handle from
+    // the sibling website fails closed rather than being answered.
+    const statusA = (await handleModuleRequest(
+      statusRequest({ capability: CAP_REQUEST_TECHNICAL_AUDIT, moduleOperationId: ackA.moduleOperationId }),
+      "status",
+      handlerDeps,
+    )) as { moduleOperationId?: string };
+    expect(statusA.moduleOperationId).toBe(ackA.moduleOperationId);
+
+    await expectErrorCode(
+      handleModuleRequest(
+        statusRequest({
+          capability: CAP_REQUEST_TECHNICAL_AUDIT,
+          moduleOperationId: ackB.moduleOperationId,
+        }),
+        "status",
+        handlerDeps,
+      ),
+      "identity_mismatch",
+    );
+  });
 });

@@ -620,9 +620,15 @@ async function handleOwnershipVerification(
  * be returned here. `findingKey` is the crawler's own issue fingerprint, which
  * is the stable evidence anchor back to the crawl that produced it.
  *
- * Provenance: `measured_external` / `measured`. The crawler performs real
- * outbound HTTP against the customer's own site; fixture transport is gated to
- * a test-only CRAWLER_ENV and cannot be enabled in a non-test worker.
+ * Provenance: `measured_external` / `measured` once a crawl has actually
+ * completed. The crawler performs real outbound HTTP against the customer's own
+ * site; fixture transport is gated to a test-only CRAWLER_ENV and cannot be
+ * enabled in a non-test worker. When no completed audit exists the empty result
+ * is SEO's own record of "nothing has been crawled yet", derived from the
+ * absence of a run rather than measured, so it is reported as `calculated` /
+ * `derived`. Reporting that state as `measured` would claim an outbound
+ * observation that never happened. This mirrors exactly how ownership
+ * verification reports its own not-yet-checked state.
  */
 async function handleCrawlFindings(
   request: ValidatedRequest,
@@ -635,9 +641,10 @@ async function handleCrawlFindings(
   requireResolved(page.resolution, deps, request);
 
   // A linked website with no completed audit yet is a legitimate empty result,
-  // not a failure and not a reason to substitute anything.
+  // not a failure and not a reason to substitute anything. Nothing was
+  // measured, so nothing claims to have been.
   if (page.resolution === "no_completed_audit") {
-    return baseResponse(request, "measured_external", "measured", undefined, []);
+    return baseResponse(request, "calculated", "derived", undefined, []);
   }
 
   // Defence in depth behind the SQL authenticity gate.

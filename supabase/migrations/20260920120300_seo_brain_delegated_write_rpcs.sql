@@ -70,17 +70,27 @@ CREATE TABLE IF NOT EXISTS public.seo_brain_operations (
   acted_as_user_id uuid REFERENCES auth.users(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
-  -- One operation per Business + capability + Brain action. A retry of the
-  -- same logical call resolves to the same row rather than starting a second
-  -- operation, which is what Contract v1's idempotencyKey is for.
+  -- One operation per Business + website + capability + Brain action. A retry
+  -- of the same logical call resolves to the same row rather than starting a
+  -- second operation, which is what Contract v1's idempotencyKey is for.
+  --
+  -- website_id is part of the key because every lookup in this file is scoped
+  -- by website. Without it, one Business with two linked websites reusing a
+  -- Brain action id would collide across them: the recommendation insert below
+  -- would fail outright, and the audit insert's ON CONFLICT would update the
+  -- OTHER website's row while returning this website's job id, leaving that
+  -- row's stored handle pointing at a job the subsequent website-scoped STATUS
+  -- lookup can never match. Scoping the key exactly as the lookups scope keeps
+  -- idempotency per website intact and makes the collision impossible.
   CONSTRAINT seo_brain_operations_action_uniq
-    UNIQUE (business_id, capability, brain_action_id)
+    UNIQUE (business_id, website_id, capability, brain_action_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_seo_brain_operations_website
   ON public.seo_brain_operations (website_id);
-CREATE INDEX IF NOT EXISTS idx_seo_brain_operations_lookup
-  ON public.seo_brain_operations (business_id, capability, brain_action_id);
+-- No separate lookup index: seo_brain_operations_action_uniq already indexes
+-- (business_id, website_id, capability, brain_action_id), which is exactly the
+-- shape every correlation lookup below uses.
 CREATE INDEX IF NOT EXISTS idx_seo_brain_operations_module_op
   ON public.seo_brain_operations (module_operation_id);
 
@@ -228,6 +238,7 @@ DECLARE
   v_job_id       uuid;
   v_job_status   text;
   v_detail       text;
+  v_crawl_key    text;
 BEGIN
   IF v_action = '' THEN
     RETURN jsonb_build_object('resolution', 'invalid_request', 'detail', 'brain_action_id is required');
@@ -283,6 +294,23 @@ BEGIN
     );
   END IF;
 
+  -- The crawl control plane's idempotency space is WORKSPACE scoped
+  -- (seo_crawl_jobs is looked up by workspace_id + idempotency_key), while
+  -- Brain derives one key per Brain action and capability, with no website in
+  -- it. One Business with two linked websites in the same workspace would
+  -- therefore hand the second website the FIRST website's crawl job. Binding
+  -- the website into the key given to the control plane keeps replay of the
+  -- same Brain action for the SAME website returning the same job, which is
+  -- what idempotency is for, while giving a different website its own. Brain's
+  -- own key is still what is stored on the operation row.
+  v_crawl_key := v_key || '@' || v_auth.website_id::text;
+  IF length(v_crawl_key) > 200 THEN
+    RETURN jsonb_build_object(
+      'resolution', 'invalid_request',
+      'detail',     'idempotency_key is too long for the crawl control plane'
+    );
+  END IF;
+
   -- Act as the resolved human so the existing RPC's own checks run for real
   -- and seo_crawl_jobs.requested_by records the real person.
   v_prev_claims := current_setting('request.jwt.claims', true);
@@ -295,7 +323,7 @@ BEGIN
   BEGIN
     SELECT a.audit_run_id, a.crawl_job_id, a.job_status
       INTO v_audit_run, v_job_id, v_job_status
-    FROM public.seo_crawl_request_audit(v_auth.website_id, v_key, NULL) a;
+    FROM public.seo_crawl_request_audit(v_auth.website_id, v_crawl_key, NULL) a;
   EXCEPTION WHEN OTHERS THEN
     v_detail := SQLERRM;
     PERFORM set_config('request.jwt.claims', coalesce(v_prev_claims, ''), true);

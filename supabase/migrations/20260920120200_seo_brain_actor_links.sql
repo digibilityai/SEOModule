@@ -43,6 +43,15 @@
 -- self service claim flow could be added later, but it needs a possession proof
 -- of the Brain identity to be safe, and that proof does not exist yet.
 --
+-- HOW THE FIRST MAPPING IS CREATED. public.seo_is_global_admin() reads
+-- public.profiles, which this repository never creates, so on a standalone SEO
+-- project no authenticated session can satisfy the INSERT policy and there is
+-- no reachable global admin to create the first row. A controlled operator
+-- procedure, public.seo_brain_bootstrap_actor_link, is provided for exactly
+-- that bootstrap. It is granted to nobody, including service_role, requires the
+-- SEO user being linked AND the authorizing SEO user to be stated explicitly,
+-- and refuses to run inside an authenticated session. See its own note below.
+--
 -- REVOCATION FAILS CLOSED. A revoked mapping stops resolving immediately and
 -- cannot be reactivated; a new row is required.
 -- =============================================================================
@@ -98,7 +107,19 @@ BEGIN
   NEW.brain_actor_id := btrim(NEW.brain_actor_id);
 
   IF TG_OP = 'INSERT' THEN
-    NEW.linked_by := auth.uid();
+    -- Authorization is recorded, never inferred. With a session identity the
+    -- server always uses it and ignores whatever the client supplied, so an
+    -- authenticated global admin cannot attribute a mapping to somebody else.
+    -- With no session identity (the controlled operator bootstrap below, which
+    -- runs in a direct SQL session where auth.uid() is NULL) the caller must
+    -- state the authorizing SEO user explicitly. There is nothing else that
+    -- could truthfully stand in for it, so the row is refused rather than
+    -- written with an unattributed NULL.
+    IF auth.uid() IS NOT NULL THEN
+      NEW.linked_by := auth.uid();
+    ELSIF NEW.linked_by IS NULL THEN
+      RAISE EXCEPTION 'linked_by is required: this session has no auth.uid(), so the authorizing SEO user must be supplied explicitly (use public.seo_brain_bootstrap_actor_link)';
+    END IF;
     NEW.linked_at := now();
   END IF;
 
@@ -116,7 +137,13 @@ BEGIN
       RAISE EXCEPTION 'A revoked Digi Brain actor mapping cannot be reactivated; create a new mapping instead';
     END IF;
     IF NEW.link_status = 'revoked' AND OLD.link_status <> 'revoked' THEN
-      NEW.revoked_by := auth.uid();
+      -- Same rule as linked_by: revocation is an authorization act and is
+      -- attributed to a real human or refused.
+      IF auth.uid() IS NOT NULL THEN
+        NEW.revoked_by := auth.uid();
+      ELSIF NEW.revoked_by IS NULL THEN
+        RAISE EXCEPTION 'revoked_by is required: this session has no auth.uid(), so the revoking SEO user must be supplied explicitly in the same UPDATE';
+      END IF;
       NEW.revoked_at := now();
     END IF;
   END IF;
@@ -174,6 +201,100 @@ CREATE POLICY seo_brain_actor_links_update
 
 REVOKE ALL ON FUNCTION public.seo_brain_actor_links_guard() FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.seo_brain_actor_links_guard() FROM anon;
+
+-- ---------------------------------------------------------------------------
+-- Controlled operator bootstrap.
+--
+-- WHY THIS EXISTS. The INSERT policy above requires public.seo_is_global_admin(),
+-- which reads public.profiles. This repository never creates public.profiles,
+-- so on a standalone SEO project (including Digi_SEO_Test) that function
+-- returns false for every user and no authenticated session can create the
+-- FIRST mapping. Without a way in, the delegated write path can never be
+-- exercised at all. This procedure is that way in, and nothing more.
+--
+-- WHAT IT IS NOT. It is not an admin UI, not a product feature, and not a new
+-- global-admin system. It creates no role, changes no policy, and is granted to
+-- nobody: EXECUTE is revoked from PUBLIC, anon, authenticated and service_role,
+-- so it is reachable only by the database owner in a direct operator session.
+-- The machine endpoint authenticates as service_role and therefore still has no
+-- path of any kind to creating an actor mapping.
+--
+-- WHAT IT REFUSES TO INVENT. It derives nothing. The operator must name the SEO
+-- user being linked AND the SEO user who authorized the mapping, both as
+-- auth.users ids, and both must already exist. No email match, no display name
+-- match, no workspace ownership, no "the only admin", no fallback to the
+-- session, no fallback to the linked user.
+--
+-- THE HONEST LIMITATION. On this schema the authorizer can only be recorded if
+-- the operator supplies it, because a direct SQL session has no auth.uid() and
+-- there is no product-level global-admin record to read one from. This
+-- procedure therefore makes p_authorized_by a required argument rather than
+-- defaulting it, and the guard trigger refuses any unattributed insert. A
+-- product-level admin surface would replace this procedure; that is deliberately
+-- out of scope here.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.seo_brain_bootstrap_actor_link(
+  p_brain_actor_id text,
+  p_seo_user_id uuid,
+  p_authorized_by uuid
+)
+RETURNS uuid
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = public
+AS $$
+DECLARE
+  v_actor text := btrim(coalesce(p_brain_actor_id, ''));
+  v_id    uuid;
+BEGIN
+  -- A session carrying a JWT must use the ordinary RLS path, so this procedure
+  -- can never become a way around the global-admin INSERT policy.
+  IF auth.uid() IS NOT NULL THEN
+    RAISE EXCEPTION 'seo_brain_bootstrap_actor_link is an operator procedure and must not be called from an authenticated session; use the normal insert path';
+  END IF;
+
+  IF v_actor = '' THEN
+    RAISE EXCEPTION 'p_brain_actor_id is required';
+  END IF;
+  IF p_seo_user_id IS NULL THEN
+    RAISE EXCEPTION 'p_seo_user_id is required: state the SEO auth.users id being linked';
+  END IF;
+  IF p_authorized_by IS NULL THEN
+    RAISE EXCEPTION 'p_authorized_by is required: state the SEO auth.users id of the human authorizing this mapping. It is never inferred';
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM auth.users u WHERE u.id = p_seo_user_id) THEN
+    RAISE EXCEPTION 'p_seo_user_id % does not exist in auth.users', p_seo_user_id;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM auth.users u WHERE u.id = p_authorized_by) THEN
+    RAISE EXCEPTION 'p_authorized_by % does not exist in auth.users', p_authorized_by;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM public.seo_brain_actor_links l
+    WHERE l.brain_actor_id = v_actor AND l.link_status = 'active'
+  ) THEN
+    RAISE EXCEPTION 'an active mapping already exists for Brain actor %; revoke it before creating another', v_actor;
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM public.seo_brain_actor_links l
+    WHERE l.seo_user_id = p_seo_user_id AND l.link_status = 'active'
+  ) THEN
+    RAISE EXCEPTION 'SEO user % is already mapped to an active Brain actor', p_seo_user_id;
+  END IF;
+
+  INSERT INTO public.seo_brain_actor_links (brain_actor_id, seo_user_id, linked_by)
+  VALUES (v_actor, p_seo_user_id, p_authorized_by)
+  RETURNING id INTO v_id;
+
+  RETURN v_id;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.seo_brain_bootstrap_actor_link(text, uuid, uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.seo_brain_bootstrap_actor_link(text, uuid, uuid) FROM anon;
+REVOKE ALL ON FUNCTION public.seo_brain_bootstrap_actor_link(text, uuid, uuid) FROM authenticated;
+REVOKE ALL ON FUNCTION public.seo_brain_bootstrap_actor_link(text, uuid, uuid) FROM service_role;
 
 -- ---------------------------------------------------------------------------
 -- Resolution helper. service_role only. Returns the SEO user for an ACTIVE

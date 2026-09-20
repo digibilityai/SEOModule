@@ -56,6 +56,7 @@ DROP FUNCTION IF EXISTS public.seo_brain_technical_audit_status(text, text, text
 DROP FUNCTION IF EXISTS public.seo_brain_request_technical_audit(text, text, text, text, text);
 DROP FUNCTION IF EXISTS public.seo_brain_authorize_delegated(text, text, text);
 DROP FUNCTION IF EXISTS public.seo_brain_resolve_actor(text);
+DROP FUNCTION IF EXISTS public.seo_brain_bootstrap_actor_link(text, uuid, uuid);
 DROP FUNCTION IF EXISTS public.seo_brain_current_recommendations(text, text, integer);
 DROP FUNCTION IF EXISTS public.seo_brain_crawl_findings(text, text, integer);
 DROP FUNCTION IF EXISTS public.seo_brain_ownership_status(text, text);

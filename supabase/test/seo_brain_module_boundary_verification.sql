@@ -44,8 +44,79 @@
 --   * actor-link RLS: a non-admin cannot authorize an actor mapping.
 -- =============================================================================
 
+-- ---------------------------------------------------------------------------
+-- PREREQUISITE, ASSERTED BEFORE ANY MUTATION.
+--
+-- This script does NOT create Supabase Auth users, in line with every other
+-- verification script in this repository: auth.users rows are created through
+-- the Auth API, never from SQL. It reuses the shared TEST fixture users, and
+-- refuses to run at all if they are absent, so a missing fixture fails here
+-- with a clear message instead of somewhere deep inside an assertion.
+--
+-- If a user below is missing, create it in Supabase Studio under Authentication
+-- -> Users with the matching address, take its UUID and either use that UUID or
+-- update the id here. Do not insert into auth.users directly.
+--
+--   b1.owner   48c479db-aedf-452e-af43-05ed1180baaa  seo-owner-test@example.com
+--   b1.client  6c7a04e0-9985-47c3-aad4-f2f0cc5e092c  seo-client-test@example.com
+--   b1.nomem   0723d21f-c02c-4725-851f-575f93f2f58c  seo-team-test@example.com
+--
+-- b1.client was previously a literal that existed nowhere; it is now the shared
+-- client fixture used by the other guarded-RPC verification scripts.
+-- ---------------------------------------------------------------------------
 SELECT set_config('b1.owner',  '48c479db-aedf-452e-af43-05ed1180baaa', false);
-SELECT set_config('b1.client', 'c6b1f0f6-3d6c-4b53-9a0f-9bf3d7a0f111', false);
+SELECT set_config('b1.client', '6c7a04e0-9985-47c3-aad4-f2f0cc5e092c', false);
+SELECT set_config('b1.nomem',  '0723d21f-c02c-4725-851f-575f93f2f58c', false);
+
+DO $prereq$
+DECLARE
+  v_pat  text := '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$';
+  v_keys text[] := ARRAY['owner', 'client', 'nomem'];
+  v_k    text;
+  v_v    text;
+BEGIN
+  FOREACH v_k IN ARRAY v_keys LOOP
+    v_v := current_setting('b1.' || v_k, true);
+    IF v_v IS NULL OR v_v !~ v_pat THEN
+      RAISE EXCEPTION
+        'PREREQUISITE FAILED: b1.% ("%") is not a valid auth.users UUID. Paste the user id from Authentication -> Users, not an email address.',
+        v_k, coalesce(v_v, '<unset>');
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM auth.users u WHERE u.id = v_v::uuid) THEN
+      RAISE EXCEPTION
+        'PREREQUISITE FAILED: the fixture auth user for b1.% (%) does not exist on this project. Create the shared TEST users in Supabase Studio (Authentication -> Users) before running this script; it never inserts into auth.users itself.',
+        v_k, v_v;
+    END IF;
+  END LOOP;
+
+  -- Every fixture identity must be distinct, or the isolation assertions below
+  -- would pass for the wrong reason.
+  IF (SELECT count(DISTINCT x) FROM unnest(ARRAY[
+        current_setting('b1.owner'), current_setting('b1.client'), current_setting('b1.nomem')
+      ]) AS x) <> 3 THEN
+    RAISE EXCEPTION 'PREREQUISITE FAILED: the three fixture user ids must be distinct';
+  END IF;
+
+  -- The four Stage 2B migrations must be applied before anything is asserted.
+  IF to_regclass('public.seo_brain_actor_links') IS NULL
+     OR to_regclass('public.seo_brain_operations') IS NULL
+     OR to_regclass('public.seo_brain_website_links') IS NULL THEN
+    RAISE EXCEPTION
+      'PREREQUISITE FAILED: the Stage 2B migrations are not applied on this project. Apply 20260920120000, 20260920120100, 20260920120200 and 20260920120300 first.';
+  END IF;
+  IF to_regprocedure('public.seo_brain_bootstrap_actor_link(text, uuid, uuid)') IS NULL THEN
+    RAISE EXCEPTION
+      'PREREQUISITE FAILED: public.seo_brain_bootstrap_actor_link is absent. Re-apply 20260920120200_seo_brain_actor_links.sql.';
+  END IF;
+
+  -- This script mutates. It must never touch a project holding real customers.
+  IF EXISTS (SELECT 1 FROM public.seo_brain_website_links WHERE business_id LIKE 'brain-biz-%')
+     OR EXISTS (SELECT 1 FROM public.seo_brain_actor_links WHERE brain_actor_id LIKE 'BRAINVERIFY-actor-%')
+     OR EXISTS (SELECT 1 FROM public.seo_workspaces WHERE name LIKE 'BRAIN-VERIFY%') THEN
+    RAISE EXCEPTION
+      'PREREQUISITE FAILED: fixtures from a previous run are still present. Investigate before re-running; this script refuses to overwrite residue.';
+  END IF;
+END $prereq$;
 
 -- ---------------------------------------------------------------------------
 -- 0. Normalizer parity. Each row mirrors one case in normalize-host.test.ts.
@@ -262,9 +333,9 @@ WHERE id = 'b1000000-0000-4000-8000-00000000000a';
 -- ---------------------------------------------------------------------------
 INSERT INTO public.seo_audit_runs (id, workspace_id, website_id, website_url, status, is_latest, completed_at)
 VALUES
-  ('b1000000-0000-4000-8000-0000000000r1', 'b1000000-0000-4000-8000-000000000001',
+  ('b1000000-0000-4000-8000-0000000000e1', 'b1000000-0000-4000-8000-000000000001',
    'b1000000-0000-4000-8000-00000000000a', 'https://www.brainverify-a.test', 'completed', true, now()),
-  ('b1000000-0000-4000-8000-0000000000r2', 'b1000000-0000-4000-8000-000000000001',
+  ('b1000000-0000-4000-8000-0000000000e2', 'b1000000-0000-4000-8000-000000000001',
    'b1000000-0000-4000-8000-00000000000b', 'https://shop.brainverify-a.test', 'completed', true, now());
 
 INSERT INTO public.seo_audit_issues
@@ -274,17 +345,17 @@ INSERT INTO public.seo_audit_issues
 VALUES
   -- Genuine crawler issue on the linked website.
   ('b1000000-0000-4000-8000-000000000001', 'b1000000-0000-4000-8000-00000000000a',
-   'https://www.brainverify-a.test', 'b1000000-0000-4000-8000-0000000000r1', 'indexability', 'critical',
+   'https://www.brainverify-a.test', 'b1000000-0000-4000-8000-0000000000e1', 'indexability', 'critical',
    'BRAINVERIFY genuine', 'x', 'x', 'x', 'https://www.brainverify-a.test/p', 'high', 'low', 'low',
    'client_action', 'fix it', 'crawler', 'GENUINE::fp1'),
   -- Seeded issue on the SAME website: must be excluded by the authenticity gate.
   ('b1000000-0000-4000-8000-000000000001', 'b1000000-0000-4000-8000-00000000000a',
-   'https://www.brainverify-a.test', 'b1000000-0000-4000-8000-0000000000r1', 'speed', 'high',
+   'https://www.brainverify-a.test', 'b1000000-0000-4000-8000-0000000000e1', 'speed', 'high',
    'BRAINVERIFY seeded', 'x', 'x', 'x', 'https://www.brainverify-a.test/q', 'high', 'low', 'low',
    'client_action', 'fix it', 'seed', 'SEEDED::fp2'),
   -- Sibling website issue: must never appear for the linked website.
   ('b1000000-0000-4000-8000-000000000001', 'b1000000-0000-4000-8000-00000000000b',
-   'https://shop.brainverify-a.test', 'b1000000-0000-4000-8000-0000000000r2', 'speed', 'high',
+   'https://shop.brainverify-a.test', 'b1000000-0000-4000-8000-0000000000e2', 'speed', 'high',
    'BRAINVERIFY sibling', 'x', 'x', 'x', 'https://shop.brainverify-a.test/p', 'high', 'low', 'low',
    'client_action', 'fix it', 'crawler', 'SIBLING::fp3');
 
@@ -380,17 +451,95 @@ RESET ROLE;
 -- ---------------------------------------------------------------------------
 -- 6b. Actor mapping: identity only, never permission.
 -- ---------------------------------------------------------------------------
-SELECT set_config('b1.actor_ok',     '48c479db-aedf-452e-af43-05ed1180baaa', false);  -- owner of ws1
-SELECT set_config('b1.actor_nomem',  '0723d21f-c02c-4725-851f-575f93f2f58c', false);  -- no membership
+SELECT set_config('b1.actor_ok',    current_setting('b1.owner'), false);  -- owner of ws1
+SELECT set_config('b1.actor_nomem', current_setting('b1.nomem'), false);  -- no membership
 
 INSERT INTO public.user_module_access (user_id, module_name, is_active)
 VALUES (current_setting('b1.actor_nomem')::uuid, 'seo', true)
 ON CONFLICT (user_id, module_name) DO UPDATE SET is_active = true;
 
-INSERT INTO public.seo_brain_actor_links (brain_actor_id, seo_user_id)
-VALUES
-  ('BRAINVERIFY-actor-ok',    current_setting('b1.actor_ok')::uuid),
-  ('BRAINVERIFY-actor-nomem', current_setting('b1.actor_nomem')::uuid);
+-- The bootstrap procedure is reachable by the operator only. Proving this
+-- BEFORE using it is the point: if the machine identity could reach it, the
+-- machine endpoint could mint its own human.
+DO $$
+DECLARE
+  v_fn text := 'public.seo_brain_bootstrap_actor_link(text, uuid, uuid)';
+  v_r  text;
+BEGIN
+  FOREACH v_r IN ARRAY ARRAY['anon', 'authenticated', 'service_role'] LOOP
+    IF has_function_privilege(v_r, v_fn, 'EXECUTE') THEN
+      RAISE EXCEPTION '% must not be able to execute the actor-link bootstrap procedure', v_r;
+    END IF;
+  END LOOP;
+END $$;
+
+-- The POSITIVE creation path, exercised for real rather than bypassed.
+--
+-- Why not the authenticated global-admin INSERT policy: public.seo_is_global_admin()
+-- reads public.profiles, which this repository never creates, so on a standalone
+-- SEO project it returns false for every user and no session can satisfy that
+-- policy. That limitation is recorded in the migration and in
+-- SEO_BRAIN_MODULE_INTERFACE.md. The reachable positive path today is the
+-- controlled operator bootstrap, and it is what runs here.
+--
+-- Note the explicit third argument: the authorizing SEO user is stated, never
+-- inferred from the linked user, an email, a name or workspace ownership.
+DO $$
+DECLARE
+  v_id       uuid;
+  v_linkedby uuid;
+BEGIN
+  v_id := public.seo_brain_bootstrap_actor_link(
+    'BRAINVERIFY-actor-ok',
+    current_setting('b1.actor_ok')::uuid,
+    current_setting('b1.owner')::uuid);
+
+  SELECT linked_by INTO v_linkedby FROM public.seo_brain_actor_links WHERE id = v_id;
+  IF v_linkedby IS DISTINCT FROM current_setting('b1.owner')::uuid THEN
+    RAISE EXCEPTION 'the bootstrap must record the stated authorizer, got %', v_linkedby;
+  END IF;
+
+  PERFORM public.seo_brain_bootstrap_actor_link(
+    'BRAINVERIFY-actor-nomem',
+    current_setting('b1.actor_nomem')::uuid,
+    current_setting('b1.owner')::uuid);
+END $$;
+
+-- The bootstrap refuses to invent an authorizer, and refuses a user it cannot
+-- find. Both refusals matter more than the happy path.
+DO $$
+BEGIN
+  BEGIN
+    PERFORM public.seo_brain_bootstrap_actor_link(
+      'BRAINVERIFY-actor-unauthorized', current_setting('b1.client')::uuid, NULL);
+    RAISE EXCEPTION 'the bootstrap must refuse a mapping with no stated authorizer';
+  EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM = 'the bootstrap must refuse a mapping with no stated authorizer' THEN RAISE; END IF;
+  END;
+
+  BEGIN
+    PERFORM public.seo_brain_bootstrap_actor_link(
+      'BRAINVERIFY-actor-ghost',
+      '00000000-0000-4000-8000-0000000000ff'::uuid,
+      current_setting('b1.owner')::uuid);
+    RAISE EXCEPTION 'the bootstrap must refuse an SEO user that does not exist';
+  EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM = 'the bootstrap must refuse an SEO user that does not exist' THEN RAISE; END IF;
+  END;
+END $$;
+
+-- A direct operator insert that names no authorizer is refused by the guard
+-- trigger, so no mapping can ever exist without a recorded human behind it.
+DO $$
+BEGIN
+  BEGIN
+    INSERT INTO public.seo_brain_actor_links (brain_actor_id, seo_user_id)
+    VALUES ('BRAINVERIFY-actor-unattributed', current_setting('b1.client')::uuid);
+    RAISE EXCEPTION 'an unattributed operator insert must be refused';
+  EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM = 'an unattributed operator insert must be refused' THEN RAISE; END IF;
+  END;
+END $$;
 
 DO $$
 DECLARE
@@ -441,9 +590,25 @@ BEGIN
   END IF;
 END $$;
 
--- Revocation fails closed and is terminal.
+-- Revocation fails closed and is terminal. An operator revoke must name the
+-- revoking human for the same reason creation must: the guard trigger refuses
+-- an unattributed status change when there is no session identity to record.
+DO $$
+BEGIN
+  BEGIN
+    UPDATE public.seo_brain_actor_links
+      SET link_status = 'revoked'
+    WHERE brain_actor_id = 'BRAINVERIFY-actor-ok';
+    RAISE EXCEPTION 'an unattributed operator revoke must be refused';
+  EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM = 'an unattributed operator revoke must be refused' THEN RAISE; END IF;
+  END;
+END $$;
+
 UPDATE public.seo_brain_actor_links
-  SET link_status = 'revoked'
+  SET link_status = 'revoked',
+      revoked_by  = current_setting('b1.owner')::uuid,
+      revoke_reason = 'BRAINVERIFY teardown assertion'
 WHERE brain_actor_id = 'BRAINVERIFY-actor-ok';
 
 DO $$
@@ -461,9 +626,11 @@ BEGIN
   END;
 END $$;
 
--- Re-map for the delegated write assertions.
-INSERT INTO public.seo_brain_actor_links (brain_actor_id, seo_user_id)
-VALUES ('BRAINVERIFY-actor-ok2', current_setting('b1.actor_ok')::uuid);
+-- Re-map for the delegated write assertions, through the same controlled path.
+SELECT public.seo_brain_bootstrap_actor_link(
+  'BRAINVERIFY-actor-ok2',
+  current_setting('b1.actor_ok')::uuid,
+  current_setting('b1.owner')::uuid);
 
 -- A non-admin cannot authorize an actor mapping.
 DO $$
@@ -603,6 +770,108 @@ BEGIN
 END $$;
 
 -- ---------------------------------------------------------------------------
+-- 6d. Operation correlation is keyed per WEBSITE, not per Business.
+--
+--     One Business can have more than one website linked. Reusing a Brain
+--     action id across them must produce two independent operations. If the
+--     uniqueness key omitted website_id, this second request would collide with
+--     the first website's row instead.
+-- ---------------------------------------------------------------------------
+DO $$
+DECLARE
+  v_cols text[];
+BEGIN
+  SELECT array_agg(a.attname::text ORDER BY a.attname::text) INTO v_cols
+  FROM pg_constraint c
+  JOIN unnest(c.conkey) AS k(attnum) ON true
+  JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = k.attnum
+  WHERE c.conname = 'seo_brain_operations_action_uniq'
+    AND c.conrelid = 'public.seo_brain_operations'::regclass;
+
+  IF v_cols IS DISTINCT FROM ARRAY['brain_action_id', 'business_id', 'capability', 'website_id'] THEN
+    RAISE EXCEPTION
+      'seo_brain_operations_action_uniq must be (business_id, website_id, capability, brain_action_id), got %',
+      v_cols;
+  END IF;
+END $$;
+
+-- Link the sibling website to the SAME Business and verify its ownership.
+INSERT INTO public.seo_brain_website_links (business_id, normalized_host, workspace_id, website_id)
+VALUES ('brain-biz-1', 'x', 'b1000000-0000-4000-8000-000000000001',
+        'b1000000-0000-4000-8000-00000000000b');
+
+INSERT INTO public.seo_ownership_verifications
+  (workspace_id, website_id, website_url, verification_host, method, status,
+   challenge_token, verified_at, last_checked_at)
+VALUES
+  ('b1000000-0000-4000-8000-000000000001', 'b1000000-0000-4000-8000-00000000000b',
+   'https://shop.brainverify-a.test', 'shop.brainverify-a.test', 'dns_txt', 'verified',
+   'digibility-site-verification=brainverifytoken2', now(), now())
+ON CONFLICT (website_id, method) DO UPDATE
+  SET status = 'verified', verified_at = now(), last_checked_at = now();
+
+DO $$
+DECLARE
+  v_first   text;
+  v_second  text;
+  v_payload jsonb;
+  v_n       integer;
+  v_status  jsonb;
+BEGIN
+  SELECT o.module_operation_id INTO v_first
+  FROM public.seo_brain_operations o
+  WHERE o.business_id = 'brain-biz-1'
+    AND o.capability = 'execute.technical_audit'
+    AND o.brain_action_id = 'BRAINVERIFY-action-1'
+    AND o.website_id = 'b1000000-0000-4000-8000-00000000000a';
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'the first website operation should already exist';
+  END IF;
+
+  -- Same Business, same Brain action, DIFFERENT website.
+  v_payload := public.seo_brain_request_technical_audit(
+    'brain-biz-1', 'shop.brainverify-a.test', 'BRAINVERIFY-actor-ok2', 'BRAINVERIFY-action-1',
+    'BRAINVERIFY-action-1:execute.technical_audit');
+
+  IF v_payload->>'resolution' <> 'resolved' THEN
+    RAISE EXCEPTION 'the sibling website must get its own operation, got % (%)',
+      v_payload->>'resolution', v_payload->>'detail';
+  END IF;
+  IF (v_payload->>'replayed')::boolean IS TRUE THEN
+    RAISE EXCEPTION 'a different website must not replay another website''s operation';
+  END IF;
+
+  v_second := v_payload->>'moduleOperationId';
+  IF v_second = v_first THEN
+    RAISE EXCEPTION 'two websites must not share one operation handle';
+  END IF;
+
+  SELECT count(*) INTO v_n
+  FROM public.seo_brain_operations o
+  WHERE o.business_id = 'brain-biz-1'
+    AND o.capability = 'execute.technical_audit'
+    AND o.brain_action_id = 'BRAINVERIFY-action-1';
+  IF v_n <> 2 THEN
+    RAISE EXCEPTION 'expected two independent operations, got %', v_n;
+  END IF;
+
+  -- The first website's stored handle is untouched, which is exactly what the
+  -- old Business-wide key would have clobbered.
+  v_status := public.seo_brain_technical_audit_status(
+    'brain-biz-1', 'brainverify-a.test', 'BRAINVERIFY-action-1', v_first);
+  IF v_status->>'resolution' <> 'resolved' THEN
+    RAISE EXCEPTION 'the first website status must still resolve, got %', v_status->>'resolution';
+  END IF;
+
+  -- And each website refuses the other's handle.
+  v_status := public.seo_brain_technical_audit_status(
+    'brain-biz-1', 'brainverify-a.test', 'BRAINVERIFY-action-1', v_second);
+  IF v_status->>'resolution' <> 'operation_mismatch' THEN
+    RAISE EXCEPTION 'a sibling website handle must fail closed, got %', v_status->>'resolution';
+  END IF;
+END $$;
+
+-- ---------------------------------------------------------------------------
 -- 7. Teardown + net-nothing proof.
 -- ---------------------------------------------------------------------------
 DELETE FROM public.seo_recommendations
@@ -610,10 +879,10 @@ DELETE FROM public.seo_recommendations
                        'b1000000-0000-4000-8000-00000000000b',
                        'b1000000-0000-4000-8000-00000000000c');
 DELETE FROM public.seo_audit_issues
-  WHERE audit_run_id IN ('b1000000-0000-4000-8000-0000000000r1',
-                         'b1000000-0000-4000-8000-0000000000r2');
+  WHERE audit_run_id IN ('b1000000-0000-4000-8000-0000000000e1',
+                         'b1000000-0000-4000-8000-0000000000e2');
 DELETE FROM public.seo_audit_runs
-  WHERE id IN ('b1000000-0000-4000-8000-0000000000r1', 'b1000000-0000-4000-8000-0000000000r2');
+  WHERE id IN ('b1000000-0000-4000-8000-0000000000e1', 'b1000000-0000-4000-8000-0000000000e2');
 DELETE FROM public.seo_brain_operations
   WHERE business_id IN ('brain-biz-1', 'brain-biz-2');
 DELETE FROM public.seo_crawl_jobs
@@ -652,6 +921,10 @@ BEGIN
   SELECT count(*) INTO n FROM public.seo_brain_actor_links
   WHERE brain_actor_id LIKE 'BRAINVERIFY-actor-%';
   IF n <> 0 THEN RAISE EXCEPTION 'residue: % actor mappings remain', n; END IF;
+
+  SELECT count(*) INTO n FROM public.seo_brain_operations
+  WHERE business_id LIKE 'brain-biz-%';
+  IF n <> 0 THEN RAISE EXCEPTION 'residue: % operation rows remain', n; END IF;
 END $$;
 
 SELECT 'seo_brain_module_boundary_verification: ALL ASSERTIONS PASSED' AS result;
