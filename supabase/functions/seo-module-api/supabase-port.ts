@@ -14,6 +14,9 @@ import {
 import {
   RESOLUTION_VALUES,
   type CrawlFindingsPage,
+  type DelegatedExecuteArgs,
+  type DelegatedOperation,
+  type DelegatedStatusArgs,
   type OwnershipStatus,
   type RecommendationsPage,
   type ResolvedTarget,
@@ -83,6 +86,26 @@ function asPayload(data: unknown, fn: string): Record<string, unknown> {
 
 function str(value: unknown): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function num(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+/** Shared mapping for every delegated execute/status payload. */
+function toDelegatedOperation(payload: Record<string, unknown>, fn: string): DelegatedOperation {
+  return {
+    resolution: asResolution(payload.resolution, fn),
+    websiteId: str(payload.websiteId),
+    moduleOperationId: str(payload.moduleOperationId),
+    moduleStatus: str(payload.moduleStatus),
+    auditRunId: str(payload.auditRunId),
+    generationMethod: str(payload.generationMethod),
+    generatedCount: num(payload.generatedCount),
+    actedAsUserId: str(payload.actedAsUserId),
+    replayed: payload.replayed === true,
+    detail: str(payload.detail),
+  };
 }
 
 export function createSupabaseSeoDataPort(caller: RpcCaller): SeoDataPort {
@@ -198,6 +221,72 @@ export function createSupabaseSeoDataPort(caller: RpcCaller): SeoDataPort {
           };
         }),
       };
+    },
+
+    async requestTechnicalAudit(args: DelegatedExecuteArgs): Promise<DelegatedOperation> {
+      const fn = "seo_brain_request_technical_audit";
+      return toDelegatedOperation(
+        asPayload(
+          await callRpc(caller, fn, {
+            p_business_id: args.businessId,
+            p_normalized_host: args.normalizedHost,
+            p_brain_actor_id: args.brainActorId,
+            p_brain_action_id: args.brainActionId,
+            p_idempotency_key: args.idempotencyKey,
+          }),
+          fn,
+        ),
+        fn,
+      );
+    },
+
+    async technicalAuditStatus(args: DelegatedStatusArgs): Promise<DelegatedOperation> {
+      const fn = "seo_brain_technical_audit_status";
+      return toDelegatedOperation(
+        asPayload(
+          await callRpc(caller, fn, {
+            p_business_id: args.businessId,
+            p_normalized_host: args.normalizedHost,
+            p_brain_action_id: args.brainActionId,
+            p_module_operation_id: args.moduleOperationId ?? null,
+          }),
+          fn,
+        ),
+        fn,
+      );
+    },
+
+    async generateRecommendations(args: DelegatedExecuteArgs): Promise<DelegatedOperation> {
+      const fn = "seo_brain_generate_recommendations";
+      return toDelegatedOperation(
+        asPayload(
+          await callRpc(caller, fn, {
+            p_business_id: args.businessId,
+            p_normalized_host: args.normalizedHost,
+            p_brain_actor_id: args.brainActorId,
+            p_brain_action_id: args.brainActionId,
+            p_idempotency_key: args.idempotencyKey,
+          }),
+          fn,
+        ),
+        fn,
+      );
+    },
+
+    async recommendationStatus(args: DelegatedStatusArgs): Promise<DelegatedOperation> {
+      const fn = "seo_brain_recommendation_status";
+      return toDelegatedOperation(
+        asPayload(
+          await callRpc(caller, fn, {
+            p_business_id: args.businessId,
+            p_normalized_host: args.normalizedHost,
+            p_brain_action_id: args.brainActionId,
+            p_module_operation_id: args.moduleOperationId ?? null,
+          }),
+          fn,
+        ),
+        fn,
+      );
     },
   };
 }

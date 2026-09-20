@@ -110,6 +110,27 @@ export interface AnalysisResult extends ModuleResponseBase {
   findings: readonly AnalysisFinding[];
 }
 
+/**
+ * EXECUTE family. Accepting a request is an acknowledgement, not a completion.
+ * `accepted: false` is a valid genuine response: it is how a module says it
+ * received a well formed request and declined to start work, for example
+ * because a precondition such as verified domain ownership is not met.
+ */
+export interface ExecutionAcknowledgement extends ModuleResponseBase {
+  brainActionId: string;
+  accepted: boolean;
+  /** The module's own status vocabulary, carried unmapped. */
+  moduleStatus: string;
+  /** The module's own stable handle for a genuinely asynchronous operation. */
+  moduleOperationId?: string;
+}
+
+export interface StatusResult extends ModuleResponseBase {
+  brainActionId: string;
+  moduleStatus: string;
+  moduleOperationId?: string;
+}
+
 export interface ModuleCapabilityDeclaration {
   moduleId: string;
   contractVersion: ModuleContractVersion;

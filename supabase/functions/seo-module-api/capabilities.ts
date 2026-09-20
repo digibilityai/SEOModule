@@ -1,12 +1,24 @@
 /**
  * What the SEO Module declares to Digi Brain under Module Contract v1.
  *
- * Only capabilities that are genuine, tenant-safe and authorizable TODAY are
- * declared. An undeclared capability is refused with unsupported_capability,
- * which the contract defines as "a refusal, never an attempt". That is the
- * correct way to withhold a capability, and it is why the two write
- * capabilities below are absent from DECLARED_CAPABILITIES rather than present
- * and failing at run time.
+ * THE KEYS BELOW ARE DIGI BRAIN'S, NOT SEO'S.
+ * Contract v1 leaves the operation half of a capability key to the module
+ * ("the operation half is module-chosen and never enumerated here"), but Digi
+ * Brain's Stage 2A adapter has already frozen the exact six keys it sends
+ * (Digi_Brain 96baf21, server/modules/seo/capabilities.ts). Brain refuses any
+ * capability its own declaration does not list, and this module refuses any key
+ * it does not declare, so a naming disagreement is not a cosmetic difference:
+ * it is a total integration failure on every mismatched capability. SEO
+ * therefore adopts Brain's names verbatim. Four of them differ from the working
+ * names used in the first Stage 2B commit; see SEO_BRAIN_MODULE_INTERFACE.md,
+ * "Capability key reconciliation", for the mapping.
+ *
+ * Family placement is also Brain's. In particular, generating recommendations
+ * is an EXECUTE capability there, not an ANALYSE one, because it triggers the
+ * specialist's own domain logic and is followed by a separate ANALYSE read.
+ *
+ * A STATUS poll reuses the SAME capability key as the EXECUTE it follows up.
+ * There is deliberately no `status.*` namespace.
  */
 
 import {
@@ -20,47 +32,29 @@ import {
 export const CAP_TARGET_LINKAGE = "analyse.target_linkage" as const;
 /** Genuine DNS-TXT domain ownership state for the linked website. */
 export const CAP_OWNERSHIP_VERIFICATION = "analyse.ownership_verification" as const;
-/** Genuine crawler-detected findings from the latest completed audit run. */
-export const CAP_CRAWL_FINDINGS = "analyse.crawl_findings" as const;
-/** Current rule-generated recommendations for the linked website. */
-export const CAP_CURRENT_RECOMMENDATIONS = "analyse.current_recommendations" as const;
+/** Request a genuine technical crawl and audit. Asynchronous. */
+export const CAP_REQUEST_TECHNICAL_AUDIT = "execute.technical_audit" as const;
+/** Read genuine crawler findings from the latest completed audit run. */
+export const CAP_READ_TECHNICAL_AUDIT = "analyse.technical_audit" as const;
+/** Generate rule-based recommendations over genuine completed crawl findings. */
+export const CAP_GENERATE_RECOMMENDATIONS = "execute.recommendations" as const;
+/** Read the current rule-generated recommendation set. */
+export const CAP_READ_RECOMMENDATIONS = "analyse.recommendations" as const;
 
 export const DECLARED_CAPABILITIES: readonly CapabilityKey[] = [
   CAP_TARGET_LINKAGE,
   CAP_OWNERSHIP_VERIFICATION,
-  CAP_CRAWL_FINDINGS,
-  CAP_CURRENT_RECOMMENDATIONS,
+  CAP_REQUEST_TECHNICAL_AUDIT,
+  CAP_READ_TECHNICAL_AUDIT,
+  CAP_GENERATE_RECOMMENDATIONS,
+  CAP_READ_RECOMMENDATIONS,
 ];
 
-/**
- * Capabilities that are approved in principle and implemented nowhere yet,
- * because both of them WRITE to SEO under a specific human's authority and SEO
- * cannot currently resolve Digi Brain's `actorId` to an SEO user identity.
- *
- * Both `public.seo_crawl_request` and `public.seo_recommendation_generate`
- * authorize on `auth.uid()`, require an owner/admin/team_member role in the
- * website's workspace, and write `created_by` plus append-only activity rows.
- * Digi Brain's `actorId` is an identifier in the Digi Brain Supabase project;
- * SEO users are rows in the SEO project's own `auth.users`. There is no table,
- * column or deterministic rule anywhere in this repository that maps one to the
- * other: `seo_identity_profiles` is keyed on the SEO user id and is unreferenced
- * by any code, and `seo_workspaces.core_profile_id` is an unused nullable seam.
- *
- * Contract v1 is explicit that `actorId` is "never a credential, never trusted
- * by this boundary as authorization", so possession of the machine secret
- * cannot stand in for the acting human. Inventing a mapping (by email, by
- * "the workspace owner", or by reusing the link's `linked_by`) would write a
- * false `created_by` into an audit trail the product treats as evidence.
- *
- * These stay undeclared until an explicit, human-authorized actor mapping
- * exists. See SEO_BRAIN_MODULE_INTERFACE.md, "Blocked write capabilities".
- */
-export const WITHHELD_CAPABILITIES: Readonly<Record<string, string>> = {
-  "execute.technical_crawl":
-    "seo_crawl_request authorizes on auth.uid() and writes created_by; Brain actorId has no deterministic SEO user mapping.",
-  "analyse.recommendation_generation":
-    "seo_recommendation_generate authorizes on auth.uid() and writes created_by; Brain actorId has no deterministic SEO user mapping.",
-};
+/** The two capabilities that carry a brainActionId and an idempotencyKey. */
+export const EXECUTE_CAPABILITIES: readonly string[] = [
+  CAP_REQUEST_TECHNICAL_AUDIT,
+  CAP_GENERATE_RECOMMENDATIONS,
+];
 
 export const SEO_MODULE_DECLARATION: ModuleCapabilityDeclaration = {
   moduleId: SEO_MODULE_ID,
@@ -70,4 +64,8 @@ export const SEO_MODULE_DECLARATION: ModuleCapabilityDeclaration = {
 
 export function declaresCapability(capability: string): boolean {
   return (DECLARED_CAPABILITIES as readonly string[]).includes(capability);
+}
+
+export function isExecuteCapability(capability: string): boolean {
+  return EXECUTE_CAPABILITIES.includes(capability);
 }

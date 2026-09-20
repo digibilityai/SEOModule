@@ -11,6 +11,8 @@
 -- RUN ONLY on a local/fresh project or Digi_SEO_Test, AFTER:
 --   * 20260920120000_seo_brain_machine_boundary_identity.sql
 --   * 20260920120100_seo_brain_delegated_read_rpcs.sql
+--   * 20260920120200_seo_brain_actor_links.sql
+--   * 20260920120300_seo_brain_delegated_write_rpcs.sql
 --
 -- Self-contained + self-seeding: creates its own disposable workspaces,
 -- memberships, websites, audit runs/issues, recommendations and links, reusing
@@ -32,7 +34,14 @@
 --     NULL generation_method are both excluded;
 --   * grants: anon and authenticated are denied EXECUTE on all four delegated
 --     RPCs; service_role is granted;
---   * link RLS: a client role cannot authorize a link; an owner can.
+--   * link RLS: a client role cannot authorize a link; an owner can;
+--   * actor mapping: exact active resolution, unknown actor, revoked actor,
+--     no email/owner/linked_by fallback, and the fact that a mapping grants
+--     NOTHING on its own (a mapped user with no membership is refused);
+--   * delegated writes: the role matrix, the preserved verified-ownership
+--     requirement, a real crawl job id as the operation handle, same-key STATUS
+--     correlation, and a cross-site operation id failing closed;
+--   * actor-link RLS: a non-admin cannot authorize an actor mapping.
 -- =============================================================================
 
 SELECT set_config('b1.owner',  '48c479db-aedf-452e-af43-05ed1180baaa', false);
@@ -84,7 +93,13 @@ BEGIN
     'public.seo_brain_resolve_target(text, text)',
     'public.seo_brain_ownership_status(text, text)',
     'public.seo_brain_crawl_findings(text, text, integer)',
-    'public.seo_brain_current_recommendations(text, text, integer)'
+    'public.seo_brain_current_recommendations(text, text, integer)',
+    'public.seo_brain_resolve_actor(text)',
+    'public.seo_brain_authorize_delegated(text, text, text)',
+    'public.seo_brain_request_technical_audit(text, text, text, text, text)',
+    'public.seo_brain_technical_audit_status(text, text, text, text)',
+    'public.seo_brain_generate_recommendations(text, text, text, text, text)',
+    'public.seo_brain_recommendation_status(text, text, text, text)'
   ] LOOP
     IF has_function_privilege('anon', fn, 'EXECUTE') THEN
       RAISE EXCEPTION 'anon must not execute %', fn;
@@ -363,6 +378,231 @@ END $$;
 RESET ROLE;
 
 -- ---------------------------------------------------------------------------
+-- 6b. Actor mapping: identity only, never permission.
+-- ---------------------------------------------------------------------------
+SELECT set_config('b1.actor_ok',     '48c479db-aedf-452e-af43-05ed1180baaa', false);  -- owner of ws1
+SELECT set_config('b1.actor_nomem',  '0723d21f-c02c-4725-851f-575f93f2f58c', false);  -- no membership
+
+INSERT INTO public.user_module_access (user_id, module_name, is_active)
+VALUES (current_setting('b1.actor_nomem')::uuid, 'seo', true)
+ON CONFLICT (user_id, module_name) DO UPDATE SET is_active = true;
+
+INSERT INTO public.seo_brain_actor_links (brain_actor_id, seo_user_id)
+VALUES
+  ('BRAINVERIFY-actor-ok',    current_setting('b1.actor_ok')::uuid),
+  ('BRAINVERIFY-actor-nomem', current_setting('b1.actor_nomem')::uuid);
+
+DO $$
+DECLARE
+  u uuid;
+  r text;
+BEGIN
+  -- Exact active resolution.
+  u := public.seo_brain_resolve_actor('BRAINVERIFY-actor-ok');
+  IF u IS DISTINCT FROM current_setting('b1.actor_ok')::uuid THEN
+    RAISE EXCEPTION 'exact actor must resolve, got %', u;
+  END IF;
+
+  -- Unknown actor resolves to nothing. No email, name or owner fallback.
+  IF public.seo_brain_resolve_actor('BRAINVERIFY-actor-unknown') IS NOT NULL THEN
+    RAISE EXCEPTION 'an unknown actor must not resolve to anybody';
+  END IF;
+  IF public.seo_brain_resolve_actor('') IS NOT NULL THEN
+    RAISE EXCEPTION 'an empty actor id must not resolve';
+  END IF;
+
+  -- A mapping grants NOTHING: the mapped user with no membership resolves as an
+  -- identity and is then refused by the role check.
+  SELECT resolution INTO r
+  FROM public.seo_brain_authorize_delegated('brain-biz-1', 'brainverify-a.test', 'BRAINVERIFY-actor-nomem');
+  IF r <> 'actor_unauthorized' THEN
+    RAISE EXCEPTION 'a mapped user with no membership must be actor_unauthorized, got %', r;
+  END IF;
+
+  -- No actor at all cannot perform a delegated write.
+  SELECT resolution INTO r
+  FROM public.seo_brain_authorize_delegated('brain-biz-1', 'brainverify-a.test', '');
+  IF r <> 'actor_required' THEN
+    RAISE EXCEPTION 'a delegated write with no actor must be actor_required, got %', r;
+  END IF;
+
+  -- An unmapped actor is distinct from an unauthorized one.
+  SELECT resolution INTO r
+  FROM public.seo_brain_authorize_delegated('brain-biz-1', 'brainverify-a.test', 'BRAINVERIFY-actor-unknown');
+  IF r <> 'actor_not_linked' THEN
+    RAISE EXCEPTION 'an unmapped actor must be actor_not_linked, got %', r;
+  END IF;
+
+  -- The owner of ws1 is permitted.
+  SELECT resolution INTO r
+  FROM public.seo_brain_authorize_delegated('brain-biz-1', 'brainverify-a.test', 'BRAINVERIFY-actor-ok');
+  IF r <> 'resolved' THEN
+    RAISE EXCEPTION 'a mapped owner must be permitted, got %', r;
+  END IF;
+END $$;
+
+-- Revocation fails closed and is terminal.
+UPDATE public.seo_brain_actor_links
+  SET link_status = 'revoked'
+WHERE brain_actor_id = 'BRAINVERIFY-actor-ok';
+
+DO $$
+BEGIN
+  IF public.seo_brain_resolve_actor('BRAINVERIFY-actor-ok') IS NOT NULL THEN
+    RAISE EXCEPTION 'a revoked actor mapping must not resolve';
+  END IF;
+  BEGIN
+    UPDATE public.seo_brain_actor_links
+      SET link_status = 'active'
+    WHERE brain_actor_id = 'BRAINVERIFY-actor-ok';
+    RAISE EXCEPTION 'reactivating a revoked actor mapping must be refused';
+  EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM = 'reactivating a revoked actor mapping must be refused' THEN RAISE; END IF;
+  END;
+END $$;
+
+-- Re-map for the delegated write assertions.
+INSERT INTO public.seo_brain_actor_links (brain_actor_id, seo_user_id)
+VALUES ('BRAINVERIFY-actor-ok2', current_setting('b1.actor_ok')::uuid);
+
+-- A non-admin cannot authorize an actor mapping.
+DO $$
+BEGIN
+  PERFORM set_config('request.jwt.claims',
+    json_build_object('sub', current_setting('b1.client'), 'role', 'authenticated')::text, true);
+  SET LOCAL ROLE authenticated;
+  BEGIN
+    INSERT INTO public.seo_brain_actor_links (brain_actor_id, seo_user_id)
+    VALUES ('BRAINVERIFY-actor-smuggled', current_setting('b1.client')::uuid);
+    RESET ROLE;
+    RAISE EXCEPTION 'a non-admin must not be able to authorize an actor mapping';
+  EXCEPTION WHEN insufficient_privilege OR check_violation THEN
+    RESET ROLE;
+  END;
+END $$;
+RESET ROLE;
+
+-- ---------------------------------------------------------------------------
+-- 6c. Delegated writes: ownership preserved, real job id, STATUS correlation.
+-- ---------------------------------------------------------------------------
+DO $$
+DECLARE payload jsonb;
+BEGIN
+  -- No verified ownership yet: the requirement is preserved, not bypassed.
+  payload := public.seo_brain_request_technical_audit(
+    'brain-biz-1', 'brainverify-a.test', 'BRAINVERIFY-actor-ok2', 'BRAINVERIFY-action-1',
+    'BRAINVERIFY-action-1:execute.technical_audit');
+  IF payload->>'resolution' <> 'ownership_not_verified' THEN
+    RAISE EXCEPTION 'unverified ownership must block a delegated crawl, got %', payload->>'resolution';
+  END IF;
+END $$;
+
+-- Verify ownership the way P1a records it, then retry.
+INSERT INTO public.seo_ownership_verifications
+  (workspace_id, website_id, website_url, verification_host, method, status,
+   challenge_token, verified_at, last_checked_at)
+VALUES
+  ('b1000000-0000-4000-8000-000000000001', 'b1000000-0000-4000-8000-00000000000a',
+   'https://www.brainverify-a.test', 'brainverify-a.test', 'dns_txt', 'verified',
+   'digibility-site-verification=brainverifytoken', now(), now())
+ON CONFLICT (website_id, method) DO UPDATE
+  SET status = 'verified', verified_at = now(), last_checked_at = now();
+
+DO $$
+DECLARE
+  payload    jsonb;
+  v_job      text;
+  v_req_by   uuid;
+  v_status   jsonb;
+BEGIN
+  payload := public.seo_brain_request_technical_audit(
+    'brain-biz-1', 'brainverify-a.test', 'BRAINVERIFY-actor-ok2', 'BRAINVERIFY-action-1',
+    'BRAINVERIFY-action-1:execute.technical_audit');
+
+  IF payload->>'resolution' <> 'resolved' THEN
+    RAISE EXCEPTION 'a verified, authorized delegated crawl must be accepted, got % (%)',
+      payload->>'resolution', payload->>'detail';
+  END IF;
+
+  v_job := payload->>'moduleOperationId';
+
+  -- The handle is a REAL crawl job on the REAL control plane.
+  SELECT j.requested_by INTO v_req_by
+  FROM public.seo_crawl_jobs j
+  WHERE j.id = v_job::uuid
+    AND j.website_id = 'b1000000-0000-4000-8000-00000000000a';
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'moduleOperationId must be a real crawl job for this website';
+  END IF;
+
+  -- Attribution is the real human, not a system account.
+  IF v_req_by IS DISTINCT FROM current_setting('b1.actor_ok')::uuid THEN
+    RAISE EXCEPTION 'requested_by must be the resolved human, got %', v_req_by;
+  END IF;
+
+  -- Idempotent replay returns the same operation, not a second crawl.
+  payload := public.seo_brain_request_technical_audit(
+    'brain-biz-1', 'brainverify-a.test', 'BRAINVERIFY-actor-ok2', 'BRAINVERIFY-action-1',
+    'BRAINVERIFY-action-1:execute.technical_audit');
+  IF payload->>'moduleOperationId' <> v_job OR (payload->>'replayed')::boolean IS NOT TRUE THEN
+    RAISE EXCEPTION 'a repeated Brain action must replay the same operation';
+  END IF;
+
+  -- STATUS correlates on the same Brain action.
+  v_status := public.seo_brain_technical_audit_status(
+    'brain-biz-1', 'brainverify-a.test', 'BRAINVERIFY-action-1', v_job);
+  IF v_status->>'resolution' <> 'resolved' THEN
+    RAISE EXCEPTION 'status must resolve, got %', v_status->>'resolution';
+  END IF;
+
+  -- A handle that is not this operation's fails closed.
+  v_status := public.seo_brain_technical_audit_status(
+    'brain-biz-1', 'brainverify-a.test', 'BRAINVERIFY-action-1', gen_random_uuid()::text);
+  IF v_status->>'resolution' <> 'operation_mismatch' THEN
+    RAISE EXCEPTION 'a foreign operation id must fail closed, got %', v_status->>'resolution';
+  END IF;
+
+  -- An unknown Brain action is not answered.
+  v_status := public.seo_brain_technical_audit_status(
+    'brain-biz-1', 'brainverify-a.test', 'BRAINVERIFY-action-never', NULL);
+  IF v_status->>'resolution' <> 'operation_not_found' THEN
+    RAISE EXCEPTION 'an unknown action must not be answered, got %', v_status->>'resolution';
+  END IF;
+
+  -- The other tenant cannot see this operation at all.
+  v_status := public.seo_brain_technical_audit_status(
+    'brain-biz-2', 'brainverify-c.test', 'BRAINVERIFY-action-1', v_job);
+  IF v_status->>'resolution' = 'resolved' THEN
+    RAISE EXCEPTION 'a cross-tenant status poll must never resolve';
+  END IF;
+END $$;
+
+-- Delegated recommendation generation over the genuine crawler audit.
+DO $$
+DECLARE payload jsonb;
+BEGIN
+  payload := public.seo_brain_generate_recommendations(
+    'brain-biz-1', 'brainverify-a.test', 'BRAINVERIFY-actor-ok2', 'BRAINVERIFY-action-2',
+    'BRAINVERIFY-action-2:execute.recommendations');
+
+  IF payload->>'resolution' <> 'resolved' THEN
+    RAISE EXCEPTION 'delegated generation must succeed over genuine crawler evidence, got % (%)',
+      payload->>'resolution', payload->>'detail';
+  END IF;
+  IF coalesce(payload->>'generationMethod', '') = '' THEN
+    RAISE EXCEPTION 'the stored generation method must be reported back';
+  END IF;
+
+  -- An unauthorized actor is refused even with a valid machine caller.
+  payload := public.seo_brain_generate_recommendations(
+    'brain-biz-1', 'brainverify-a.test', 'BRAINVERIFY-actor-nomem', 'BRAINVERIFY-action-3',
+    'BRAINVERIFY-action-3:execute.recommendations');
+  IF payload->>'resolution' <> 'actor_unauthorized' THEN
+    RAISE EXCEPTION 'an unauthorized actor must be refused, got %', payload->>'resolution';
+  END IF;
+END $$;
+
+-- ---------------------------------------------------------------------------
 -- 7. Teardown + net-nothing proof.
 -- ---------------------------------------------------------------------------
 DELETE FROM public.seo_recommendations
@@ -374,6 +614,18 @@ DELETE FROM public.seo_audit_issues
                          'b1000000-0000-4000-8000-0000000000r2');
 DELETE FROM public.seo_audit_runs
   WHERE id IN ('b1000000-0000-4000-8000-0000000000r1', 'b1000000-0000-4000-8000-0000000000r2');
+DELETE FROM public.seo_brain_operations
+  WHERE business_id IN ('brain-biz-1', 'brain-biz-2');
+DELETE FROM public.seo_crawl_jobs
+  WHERE website_id IN ('b1000000-0000-4000-8000-00000000000a',
+                       'b1000000-0000-4000-8000-00000000000b',
+                       'b1000000-0000-4000-8000-00000000000c');
+DELETE FROM public.seo_ownership_verifications
+  WHERE website_id IN ('b1000000-0000-4000-8000-00000000000a',
+                       'b1000000-0000-4000-8000-00000000000b',
+                       'b1000000-0000-4000-8000-00000000000c');
+DELETE FROM public.seo_brain_actor_links
+  WHERE brain_actor_id LIKE 'BRAINVERIFY-actor-%';
 DELETE FROM public.seo_brain_website_links
   WHERE business_id IN ('brain-biz-1', 'brain-biz-2', 'brain-biz-client');
 DELETE FROM public.seo_workspace_members
@@ -396,6 +648,10 @@ BEGIN
   SELECT count(*) INTO n FROM public.seo_workspaces
   WHERE name LIKE 'BRAIN-VERIFY%';
   IF n <> 0 THEN RAISE EXCEPTION 'residue: % workspaces remain', n; END IF;
+
+  SELECT count(*) INTO n FROM public.seo_brain_actor_links
+  WHERE brain_actor_id LIKE 'BRAINVERIFY-actor-%';
+  IF n <> 0 THEN RAISE EXCEPTION 'residue: % actor mappings remain', n; END IF;
 END $$;
 
 SELECT 'seo_brain_module_boundary_verification: ALL ASSERTIONS PASSED' AS result;

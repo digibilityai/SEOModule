@@ -15,24 +15,38 @@ import {
   isCapabilityKey,
   type AnalysisFinding,
   type AnalysisResult,
+  type ExecutionAcknowledgement,
   type FindingSeverity,
+  type StatusResult,
   type ModuleWebsiteIdentity,
   type ObservationMethod,
   type ProvenanceBasis,
 } from "./contract.ts";
 import {
-  CAP_CRAWL_FINDINGS,
-  CAP_CURRENT_RECOMMENDATIONS,
+  CAP_GENERATE_RECOMMENDATIONS,
   CAP_OWNERSHIP_VERIFICATION,
+  CAP_READ_RECOMMENDATIONS,
+  CAP_READ_TECHNICAL_AUDIT,
+  CAP_REQUEST_TECHNICAL_AUDIT,
   CAP_TARGET_LINKAGE,
-  WITHHELD_CAPABILITIES,
   declaresCapability,
+  isExecuteCapability,
 } from "./capabilities.ts";
 import { isCanonicalHost } from "./normalize-host.ts";
 import type {
+  DelegatedOperation,
   SeoDataPort,
   TargetResolutionCode,
 } from "./port.ts";
+
+/**
+ * Which capability-family HTTP path an exchange arrived on. Digi Brain's
+ * transport posts one path per family (Digi_Brain 96baf21,
+ * server/modules/seo/transport.ts). A STATUS poll arrives on /status while
+ * still carrying the originating `execute.*` capability key, per the frozen
+ * convention that a status poll is not a second capability.
+ */
+export type ExchangeFamily = "analyse" | "execute" | "status";
 
 export interface ValidatedRequest {
   contractVersion: typeof MODULE_CONTRACT_VERSION;
@@ -42,6 +56,9 @@ export interface ValidatedRequest {
   businessId: string;
   websiteIdentity: ModuleWebsiteIdentity;
   actorId?: string;
+  brainActionId?: string;
+  idempotencyKey?: string;
+  moduleOperationId?: string;
 }
 
 export interface HandlerDeps {
@@ -71,12 +88,37 @@ const NOT_LINKED_REASONS: ReadonlySet<TargetResolutionCode> = new Set([
   "invalid_target",
 ]);
 
+/**
+ * Refusals that concern the acting human rather than the target. All three are
+ * `unauthorized`: Contract v1 has no separate code for "identity established
+ * but not permitted", and collapsing them keeps the wire from disclosing
+ * whether a given Brain actor is mapped at all.
+ */
+const UNAUTHORIZED_REASONS: ReadonlySet<TargetResolutionCode> = new Set([
+  "actor_required",
+  "actor_not_linked",
+  "actor_unauthorized",
+]);
+
 function requireResolved(
   resolution: TargetResolutionCode,
   deps: HandlerDeps,
   request: ValidatedRequest,
 ): void {
   if (resolution === "resolved" || resolution === "no_completed_audit") return;
+  if (UNAUTHORIZED_REASONS.has(resolution)) {
+    deps.log?.({
+      event: "seo_module_actor_refused",
+      requestId: request.requestId,
+      capability: request.capability,
+      reason: resolution,
+    });
+    throw new SeoModuleContractError(
+      "unauthorized",
+      "The acting user is not authorized to perform this SEO operation.",
+      resolution,
+    );
+  }
   if (NOT_LINKED_REASONS.has(resolution)) {
     deps.log?.({
       event: "seo_module_target_not_linked",
@@ -125,7 +167,7 @@ function uniformValue(values: readonly (string | null)[]): string | undefined {
   return present.every((value) => value === first) ? first : undefined;
 }
 
-export function validateRequest(rawBody: unknown): ValidatedRequest {
+export function validateRequest(rawBody: unknown, family: ExchangeFamily): ValidatedRequest {
   if (typeof rawBody !== "object" || rawBody === null || Array.isArray(rawBody)) {
     throw new SeoModuleContractError("invalid_request", "Request body must be a JSON object.");
   }
@@ -157,11 +199,25 @@ export function validateRequest(rawBody: unknown): ValidatedRequest {
   }
 
   if (!declaresCapability(body.capability)) {
-    const withheld = WITHHELD_CAPABILITIES[body.capability];
     throw new SeoModuleContractError(
       "unsupported_capability",
       `The SEO module does not declare capability "${body.capability}".`,
-      withheld,
+    );
+  }
+
+  // The HTTP path and the capability key must agree. A STATUS poll is the one
+  // deliberate exception: it arrives on /status carrying the originating
+  // execute.* key, which is the frozen convention on both sides.
+  if (family === "analyse" && isExecuteCapability(body.capability)) {
+    throw new SeoModuleContractError(
+      "invalid_request",
+      `Capability "${body.capability}" is not an analyse exchange.`,
+    );
+  }
+  if ((family === "execute" || family === "status") && !isExecuteCapability(body.capability)) {
+    throw new SeoModuleContractError(
+      "invalid_request",
+      `Capability "${body.capability}" is not an ${family} exchange.`,
     );
   }
 
@@ -188,6 +244,28 @@ export function validateRequest(rawBody: unknown): ValidatedRequest {
     );
   }
 
+  // Action scoped exchanges carry Brain's own correlation identity.
+  if (family === "execute" || family === "status") {
+    if (!isNonEmptyString(body.brainActionId)) {
+      throw new SeoModuleContractError(
+        "invalid_request",
+        "brainActionId is required for this capability exchange.",
+      );
+    }
+    if (body.moduleOperationId !== undefined && !isNonEmptyString(body.moduleOperationId)) {
+      throw new SeoModuleContractError(
+        "invalid_request",
+        "moduleOperationId, when present, must be non-empty.",
+      );
+    }
+  }
+  if (family === "execute" && !isNonEmptyString(body.idempotencyKey)) {
+    throw new SeoModuleContractError(
+      "invalid_request",
+      "idempotencyKey is required for an execution request.",
+    );
+  }
+
   return {
     contractVersion: MODULE_CONTRACT_VERSION,
     moduleId: SEO_MODULE_ID,
@@ -199,6 +277,11 @@ export function validateRequest(rawBody: unknown): ValidatedRequest {
       assessedUrl: identity.assessedUrl,
     },
     ...(isNonEmptyString(body.actorId) ? { actorId: body.actorId.trim() } : {}),
+    ...(isNonEmptyString(body.brainActionId) ? { brainActionId: body.brainActionId.trim() } : {}),
+    ...(isNonEmptyString(body.idempotencyKey) ? { idempotencyKey: body.idempotencyKey.trim() } : {}),
+    ...(isNonEmptyString(body.moduleOperationId)
+      ? { moduleOperationId: body.moduleOperationId.trim() }
+      : {}),
   };
 }
 
@@ -245,19 +328,28 @@ function assertNoSubstitution(request: ValidatedRequest, resolvedHost: string | 
 
 export async function handleModuleRequest(
   rawBody: unknown,
+  family: ExchangeFamily,
   deps: HandlerDeps,
-): Promise<AnalysisResult> {
-  const request = validateRequest(rawBody);
+): Promise<AnalysisResult | ExecutionAcknowledgement | StatusResult> {
+  const request = validateRequest(rawBody, family);
+
+  if (family === "status") {
+    return handleStatus(request, deps);
+  }
 
   switch (request.capability) {
     case CAP_TARGET_LINKAGE:
       return handleTargetLinkage(request, deps);
     case CAP_OWNERSHIP_VERIFICATION:
       return handleOwnershipVerification(request, deps);
-    case CAP_CRAWL_FINDINGS:
+    case CAP_READ_TECHNICAL_AUDIT:
       return handleCrawlFindings(request, deps);
-    case CAP_CURRENT_RECOMMENDATIONS:
+    case CAP_READ_RECOMMENDATIONS:
       return handleCurrentRecommendations(request, deps);
+    case CAP_REQUEST_TECHNICAL_AUDIT:
+      return handleRequestTechnicalAudit(request, deps);
+    case CAP_GENERATE_RECOMMENDATIONS:
+      return handleGenerateRecommendations(request, deps);
     default:
       // Unreachable: validateRequest already refused anything undeclared.
       throw new SeoModuleContractError(
@@ -265,6 +357,190 @@ export async function handleModuleRequest(
         `The SEO module does not declare capability "${request.capability}".`,
       );
   }
+}
+
+// ---------------------------------------------------------------------------
+// Delegated EXECUTE and STATUS
+// ---------------------------------------------------------------------------
+
+/**
+ * Shared shape for both acknowledgements and status results.
+ *
+ * Provenance is `calculated` / `derived` for every one of these: the value
+ * being reported is the state of an operation inside SEO's own control plane,
+ * computed from SEO's own records. Nothing about the customer's website is
+ * measured by accepting a request or by reporting a job's status, and saying
+ * `measured` here would overstate what the response actually knows.
+ */
+function operationResponseBase(
+  request: ValidatedRequest,
+  generationMethod: string | undefined,
+): Omit<StatusResult, "brainActionId" | "moduleStatus"> {
+  return {
+    businessId: request.businessId,
+    websiteIdentity: request.websiteIdentity,
+    ...(request.actorId ? { actorId: request.actorId } : {}),
+    dataAuthenticity: "genuine",
+    observationMethod: "calculated",
+    provenance: {
+      basis: "derived",
+      ...(generationMethod ? { generationMethod } : {}),
+    },
+  };
+}
+
+/**
+ * Refusals that are a legitimate, genuine "we did not start this" rather than
+ * an error. Contract v1 models exactly this with `accepted: false`, so a
+ * precondition failure is reported as a real acknowledgement carrying SEO's own
+ * status, not as a thrown error that would discard the reason.
+ */
+const NOT_ACCEPTED_REASONS: ReadonlySet<TargetResolutionCode> = new Set([
+  "ownership_not_verified",
+  "no_completed_audit",
+  "no_genuine_audit_evidence",
+]);
+
+function toAcknowledgement(
+  request: ValidatedRequest,
+  operation: DelegatedOperation,
+  deps: HandlerDeps,
+): ExecutionAcknowledgement {
+  const brainActionId = request.brainActionId as string;
+
+  if (operation.resolution === "execution_failed" || operation.resolution === "invalid_request") {
+    throw new SeoModuleContractError(
+      operation.resolution === "invalid_request" ? "invalid_request" : "execution_failed",
+      "The SEO module could not start this operation.",
+      operation.detail ?? operation.resolution,
+    );
+  }
+
+  if (NOT_ACCEPTED_REASONS.has(operation.resolution)) {
+    deps.log?.({
+      event: "seo_module_operation_not_accepted",
+      requestId: request.requestId,
+      capability: request.capability,
+      reason: operation.resolution,
+    });
+    return {
+      ...operationResponseBase(request, undefined),
+      brainActionId,
+      accepted: false,
+      // SEO's own vocabulary, carried unmapped, so Brain can tell a blocked
+      // precondition apart from a started operation without parsing prose.
+      moduleStatus: operation.resolution,
+    };
+  }
+
+  requireResolved(operation.resolution, deps, request);
+
+  return {
+    ...operationResponseBase(request, operation.generationMethod ?? undefined),
+    brainActionId,
+    accepted: true,
+    moduleStatus: operation.moduleStatus ?? "queued",
+    ...(operation.moduleOperationId ? { moduleOperationId: operation.moduleOperationId } : {}),
+  };
+}
+
+/**
+ * Requests a genuine technical crawl and audit.
+ *
+ * The SQL wrapper resolves the target and the acting human, re-checks the
+ * existing workspace role matrix, and then invokes the unchanged
+ * seo_crawl_request_audit as that human, so verified ownership, single active
+ * job, idempotency and truthful requested_by all behave exactly as they do for
+ * a person in the browser. moduleOperationId is the real seo_crawl_jobs id.
+ */
+async function handleRequestTechnicalAudit(
+  request: ValidatedRequest,
+  deps: HandlerDeps,
+): Promise<ExecutionAcknowledgement> {
+  const operation = await deps.db.requestTechnicalAudit({
+    businessId: request.businessId,
+    normalizedHost: request.websiteIdentity.normalizedHost,
+    brainActorId: request.actorId ?? "",
+    brainActionId: request.brainActionId as string,
+    idempotencyKey: request.idempotencyKey as string,
+  });
+  return toAcknowledgement(request, operation, deps);
+}
+
+/**
+ * Generates rule-based recommendations over genuine completed crawl findings.
+ *
+ * The SQL wrapper refuses outright unless the latest completed audit run
+ * actually contains crawler-sourced issues, so generation can never be
+ * delegated over a seeded or manual audit. generationMethod is read back from
+ * the stored rows rather than asserted here.
+ */
+async function handleGenerateRecommendations(
+  request: ValidatedRequest,
+  deps: HandlerDeps,
+): Promise<ExecutionAcknowledgement> {
+  const operation = await deps.db.generateRecommendations({
+    businessId: request.businessId,
+    normalizedHost: request.websiteIdentity.normalizedHost,
+    brainActorId: request.actorId ?? "",
+    brainActionId: request.brainActionId as string,
+    idempotencyKey: request.idempotencyKey as string,
+  });
+  return toAcknowledgement(request, operation, deps);
+}
+
+/**
+ * STATUS for either execute capability, keyed by the originating capability.
+ *
+ * Scoped to the exact linked Business and website. An operation this module
+ * never accepted is `invalid_request`; a real moduleOperationId belonging to a
+ * different website or a different action is `identity_mismatch`, never an
+ * answer about some other operation.
+ */
+async function handleStatus(
+  request: ValidatedRequest,
+  deps: HandlerDeps,
+): Promise<StatusResult> {
+  const args = {
+    businessId: request.businessId,
+    normalizedHost: request.websiteIdentity.normalizedHost,
+    brainActionId: request.brainActionId as string,
+    ...(request.moduleOperationId ? { moduleOperationId: request.moduleOperationId } : {}),
+  };
+
+  const operation =
+    request.capability === CAP_REQUEST_TECHNICAL_AUDIT
+      ? await deps.db.technicalAuditStatus(args)
+      : await deps.db.recommendationStatus(args);
+
+  if (operation.resolution === "operation_mismatch") {
+    deps.log?.({
+      event: "seo_module_operation_mismatch",
+      requestId: request.requestId,
+      capability: request.capability,
+    });
+    throw new SeoModuleContractError(
+      "identity_mismatch",
+      "The supplied moduleOperationId does not belong to this operation.",
+      "operation_mismatch",
+    );
+  }
+  if (operation.resolution === "operation_not_found") {
+    throw new SeoModuleContractError(
+      "invalid_request",
+      "The SEO module has no record of this operation for this Business and website.",
+      "operation_not_found",
+    );
+  }
+
+  requireResolved(operation.resolution, deps, request);
+
+  return {
+    ...operationResponseBase(request, undefined),
+    brainActionId: request.brainActionId as string,
+    moduleStatus: operation.moduleStatus ?? "unknown",
+    ...(operation.moduleOperationId ? { moduleOperationId: operation.moduleOperationId } : {}),
+  };
 }
 
 /**

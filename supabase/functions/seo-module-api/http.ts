@@ -18,10 +18,48 @@ import {
   type ModuleErrorCode,
 } from "./contract.ts";
 import { SEO_MODULE_DECLARATION } from "./capabilities.ts";
-import { handleModuleRequest, type HandlerDeps } from "./handler.ts";
+import { handleModuleRequest, type ExchangeFamily, type HandlerDeps } from "./handler.ts";
 
-/** Header carrying the shared machine credential. */
+/**
+ * Digi Brain's transport sends `authorization: Bearer <SEO_MODULE_API_KEY>`
+ * (Digi_Brain 96baf21, server/modules/seo/transport.ts). That is the canonical
+ * scheme.
+ */
+export const AUTHORIZATION_HEADER = "authorization";
+/**
+ * Also accepted, for operator tooling and for anything built against the first
+ * Stage 2B commit before the Brain transport was reconciled. Compared against
+ * the same secret, the same way; it grants nothing extra.
+ */
 export const MODULE_SECRET_HEADER = "x-digibility-module-secret";
+
+/**
+ * One path per capability family, matching Brain's transport exactly. `/verify`
+ * and `/result-evidence` exist in the contract but SEO declares no capability
+ * in either family, so they are refused rather than silently routed elsewhere.
+ */
+const FAMILY_BY_PATH: Readonly<Record<string, ExchangeFamily>> = {
+  analyse: "analyse",
+  execute: "execute",
+  status: "status",
+};
+
+/**
+ * Takes the last non-empty path segment, so the function works whether it is
+ * mounted at `/functions/v1/seo-module-api/analyse` or at a rewritten
+ * `/api/module-contract/analyse`.
+ */
+export function familyFromUrl(url: string): ExchangeFamily | null {
+  let pathname: string;
+  try {
+    pathname = new URL(url).pathname;
+  } catch {
+    return null;
+  }
+  const segments = pathname.split("/").filter((segment) => segment.length > 0);
+  const last = segments[segments.length - 1] ?? "";
+  return FAMILY_BY_PATH[last] ?? null;
+}
 
 export interface TransportConfig {
   /** Shared secret held only by Digi Brain's server and this function. */
@@ -60,7 +98,12 @@ export function authorizeCaller(headers: HeaderLike, config: TransportConfig): v
       "SEO_MODULE_API_SECRET is missing or shorter than 32 characters",
     );
   }
-  const presented = headers.get(MODULE_SECRET_HEADER);
+  const bearer = headers.get(AUTHORIZATION_HEADER);
+  const presented =
+    bearer && /^Bearer\s+/i.test(bearer)
+      ? bearer.replace(/^Bearer\s+/i, "").trim()
+      : headers.get(MODULE_SECRET_HEADER);
+
   if (!presented || !secretsMatch(presented, config.moduleApiSecret)) {
     throw new SeoModuleContractError(
       "unauthorized",
@@ -104,6 +147,16 @@ export async function serveModuleRequest(
 
     authorizeCaller(request.headers, config);
 
+    const family = familyFromUrl(request.url);
+    if (family === null) {
+      // An unknown family, including /verify and /result-evidence, which this
+      // module declares no capability in.
+      throw new SeoModuleContractError(
+        "unsupported_capability",
+        "The SEO module serves the analyse, execute and status capability families only.",
+      );
+    }
+
     let body: unknown;
     try {
       body = await request.json();
@@ -111,7 +164,7 @@ export async function serveModuleRequest(
       throw new SeoModuleContractError("invalid_request", "Request body must be valid JSON.");
     }
 
-    const result = await handleModuleRequest(body, deps);
+    const result = await handleModuleRequest(body, family, deps);
     return new Response(JSON.stringify(result), { status: 200, headers: JSON_HEADERS });
   } catch (error) {
     if (error instanceof SeoModuleContractError) {

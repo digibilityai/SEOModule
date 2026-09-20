@@ -6,15 +6,28 @@ import { FakeSeoDataPort, baseStore, moduleRequest } from "./test-support.ts";
 const SECRET = "a".repeat(48);
 const config = { moduleApiSecret: SECRET };
 
-function post(body: unknown, headers: Record<string, string> = {}): Request {
-  return new Request("https://seo.example/functions/v1/seo-module-api", {
+const BASE = "https://seo.example/functions/v1/seo-module-api";
+
+/** Digi Brain posts one path per capability family. */
+function post(
+  body: unknown,
+  headers: Record<string, string> = {},
+  family: string = "analyse",
+): Request {
+  return new Request(`${BASE}/${family}`, {
     method: "POST",
     headers: { "content-type": "application/json", ...headers },
     body: JSON.stringify(body),
   });
 }
 
+/** The canonical scheme Digi Brain's transport uses. */
 function withSecret(secret = SECRET): Record<string, string> {
+  return { authorization: `Bearer ${secret}` };
+}
+
+/** The alternative header, kept working for operator tooling. */
+function withLegacyHeader(secret = SECRET): Record<string, string> {
   return { [MODULE_SECRET_HEADER]: secret };
 }
 
@@ -30,9 +43,12 @@ describe("machine credential", () => {
 
   it.each([
     ["no secret header", {}],
-    ["an empty secret", { [MODULE_SECRET_HEADER]: "" }],
-    ["a wrong secret of the same length", { [MODULE_SECRET_HEADER]: "b".repeat(48) }],
-    ["a truncated secret", { [MODULE_SECRET_HEADER]: "a".repeat(47) }],
+    ["an empty bearer token", { authorization: "Bearer " }],
+    ["a wrong bearer token of the same length", { authorization: `Bearer ${"b".repeat(48)}` }],
+    ["a truncated bearer token", { authorization: `Bearer ${"a".repeat(47)}` }],
+    ["a non-bearer authorization scheme", { authorization: `Basic ${SECRET}` }],
+    ["an empty legacy header", { [MODULE_SECRET_HEADER]: "" }],
+    ["a wrong legacy header", { [MODULE_SECRET_HEADER]: "b".repeat(48) }],
   ])("refuses a caller with %s", async (_label, headers) => {
     const dependencies = deps();
     const response = await serveModuleRequest(post(moduleRequest(), headers), config, dependencies);
@@ -75,11 +91,17 @@ describe("machine credential", () => {
 });
 
 describe("transport behaviour", () => {
+  it("also accepts the legacy secret header", async () => {
+    const response = await serveModuleRequest(
+      post(moduleRequest(), withLegacyHeader()),
+      config,
+      deps(),
+    );
+    expect(response.status).toBe(200);
+  });
+
   it("serves the capability declaration on an authenticated GET", async () => {
-    const request = new Request("https://seo.example/functions/v1/seo-module-api", {
-      method: "GET",
-      headers: withSecret(),
-    });
+    const request = new Request(BASE, { method: "GET", headers: withSecret() });
     const response = await serveModuleRequest(request, config, deps());
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
@@ -88,29 +110,28 @@ describe("transport behaviour", () => {
       capabilities: [
         "analyse.target_linkage",
         "analyse.ownership_verification",
-        "analyse.crawl_findings",
-        "analyse.current_recommendations",
+        "execute.technical_audit",
+        "analyse.technical_audit",
+        "execute.recommendations",
+        "analyse.recommendations",
       ],
     });
   });
 
   it("does not serve the capability declaration to an unauthenticated caller", async () => {
-    const request = new Request("https://seo.example/functions/v1/seo-module-api", { method: "GET" });
+    const request = new Request(BASE, { method: "GET" });
     const response = await serveModuleRequest(request, config, deps());
     expect(response.status).toBe(403);
   });
 
   it("refuses a method other than GET or POST", async () => {
-    const request = new Request("https://seo.example/functions/v1/seo-module-api", {
-      method: "DELETE",
-      headers: withSecret(),
-    });
+    const request = new Request(`${BASE}/analyse`, { method: "DELETE", headers: withSecret() });
     const response = await serveModuleRequest(request, config, deps());
     expect(response.status).toBe(400);
   });
 
   it("refuses a body that is not valid JSON", async () => {
-    const request = new Request("https://seo.example/functions/v1/seo-module-api", {
+    const request = new Request(`${BASE}/analyse`, {
       method: "POST",
       headers: { "content-type": "application/json", ...withSecret() },
       body: "{not json",

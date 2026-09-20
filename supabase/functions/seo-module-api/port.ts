@@ -22,6 +22,16 @@ export const RESOLUTION_VALUES = [
   "website_missing",
   "invalid_target",
   "no_completed_audit",
+  // Delegated write and status resolutions.
+  "actor_required",
+  "actor_not_linked",
+  "actor_unauthorized",
+  "ownership_not_verified",
+  "no_genuine_audit_evidence",
+  "operation_not_found",
+  "operation_mismatch",
+  "execution_failed",
+  "invalid_request",
 ] as const;
 export type TargetResolutionCode = (typeof RESOLUTION_VALUES)[number];
 
@@ -96,9 +106,54 @@ export interface RecommendationsPage {
   recommendations: Recommendation[];
 }
 
+/**
+ * The outcome of a delegated EXECUTE. `resolution` carries SEO's own reason;
+ * the handler maps it onto either a Contract v1 error or an acknowledgement
+ * with `accepted: false`.
+ */
+export interface DelegatedOperation {
+  resolution: TargetResolutionCode;
+  websiteId: string | null;
+  /** The REAL crawl job id for a technical audit; the operation id otherwise. */
+  moduleOperationId: string | null;
+  /** SEO's own status vocabulary, carried unmapped to Brain. */
+  moduleStatus: string | null;
+  auditRunId: string | null;
+  /** Present only for recommendation generation. */
+  generationMethod: string | null;
+  generatedCount: number | null;
+  /** The SEO user the operation genuinely ran as. Attribution, not identity. */
+  actedAsUserId: string | null;
+  /** True when an earlier identical Brain action resolved to this operation. */
+  replayed: boolean;
+  /** SEO-side failure detail. Logged, never placed on the wire. */
+  detail: string | null;
+}
+
 export interface SeoDataPort {
   resolveTarget(businessId: string, normalizedHost: string): Promise<ResolvedTarget>;
   ownershipStatus(businessId: string, normalizedHost: string): Promise<OwnershipStatus>;
   crawlFindings(businessId: string, normalizedHost: string): Promise<CrawlFindingsPage>;
   currentRecommendations(businessId: string, normalizedHost: string): Promise<RecommendationsPage>;
+
+  requestTechnicalAudit(args: DelegatedExecuteArgs): Promise<DelegatedOperation>;
+  technicalAuditStatus(args: DelegatedStatusArgs): Promise<DelegatedOperation>;
+  generateRecommendations(args: DelegatedExecuteArgs): Promise<DelegatedOperation>;
+  recommendationStatus(args: DelegatedStatusArgs): Promise<DelegatedOperation>;
+}
+
+export interface DelegatedExecuteArgs {
+  businessId: string;
+  normalizedHost: string;
+  /** Digi Brain's actorId, opaque. Resolved to an SEO user inside SQL. */
+  brainActorId: string;
+  brainActionId: string;
+  idempotencyKey: string;
+}
+
+export interface DelegatedStatusArgs {
+  businessId: string;
+  normalizedHost: string;
+  brainActionId: string;
+  moduleOperationId?: string;
 }

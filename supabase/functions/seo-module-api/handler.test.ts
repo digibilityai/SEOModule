@@ -2,12 +2,14 @@ import { describe, expect, it } from "vitest";
 import { SeoModuleContractError } from "./contract.ts";
 import { handleModuleRequest } from "./handler.ts";
 import {
-  CAP_CRAWL_FINDINGS,
-  CAP_CURRENT_RECOMMENDATIONS,
+  CAP_GENERATE_RECOMMENDATIONS,
   CAP_OWNERSHIP_VERIFICATION,
+  CAP_READ_RECOMMENDATIONS,
+  CAP_READ_TECHNICAL_AUDIT,
+  CAP_REQUEST_TECHNICAL_AUDIT,
   CAP_TARGET_LINKAGE,
   DECLARED_CAPABILITIES,
-  WITHHELD_CAPABILITIES,
+  isExecuteCapability,
 } from "./capabilities.ts";
 import {
   FakeSeoDataPort,
@@ -39,6 +41,7 @@ describe("deterministic target resolution", () => {
     const { db, handlerDeps } = deps();
     const result = await handleModuleRequest(
       moduleRequest({ capability: CAP_TARGET_LINKAGE }),
+      "analyse",
       handlerDeps,
     );
 
@@ -60,6 +63,7 @@ describe("deterministic target resolution", () => {
     await expectErrorCode(
       handleModuleRequest(
         moduleRequest({ capability: CAP_TARGET_LINKAGE, businessId: "biz-unknown" }),
+        "analyse",
         handlerDeps,
       ),
       "target_not_linked",
@@ -72,6 +76,7 @@ describe("deterministic target resolution", () => {
     await expectErrorCode(
       handleModuleRequest(
         moduleRequest({ capability: CAP_TARGET_LINKAGE, businessId: "biz-2" }),
+        "analyse",
         handlerDeps,
       ),
       "target_not_linked",
@@ -89,6 +94,7 @@ describe("deterministic target resolution", () => {
             assessedUrl: "https://shop.example.com/",
           },
         }),
+        "analyse",
         handlerDeps,
       ),
       "target_not_linked",
@@ -102,7 +108,7 @@ describe("deterministic target resolution", () => {
     ];
     const { handlerDeps } = deps(store);
     await expectErrorCode(
-      handleModuleRequest(moduleRequest({ capability: CAP_TARGET_LINKAGE }), handlerDeps),
+      handleModuleRequest(moduleRequest({ capability: CAP_TARGET_LINKAGE }), "analyse", handlerDeps),
       "target_not_linked",
     );
   });
@@ -113,7 +119,7 @@ describe("deterministic target resolution", () => {
     store.websites[0].websiteUrl = "https://renamed.example.org";
     const { handlerDeps } = deps(store);
     await expectErrorCode(
-      handleModuleRequest(moduleRequest({ capability: CAP_TARGET_LINKAGE }), handlerDeps),
+      handleModuleRequest(moduleRequest({ capability: CAP_TARGET_LINKAGE }), "analyse", handlerDeps),
       "target_not_linked",
     );
   });
@@ -123,7 +129,7 @@ describe("deterministic target resolution", () => {
     store.websites[0].isActive = false;
     const { handlerDeps } = deps(store);
     await expectErrorCode(
-      handleModuleRequest(moduleRequest({ capability: CAP_TARGET_LINKAGE }), handlerDeps),
+      handleModuleRequest(moduleRequest({ capability: CAP_TARGET_LINKAGE }), "analyse", handlerDeps),
       "target_not_linked",
     );
   });
@@ -137,7 +143,8 @@ describe("no substitution of any kind", () => {
     const { handlerDeps } = deps(store);
 
     const result = await handleModuleRequest(
-      moduleRequest({ capability: CAP_CRAWL_FINDINGS }),
+      moduleRequest({ capability: CAP_READ_TECHNICAL_AUDIT }),
+      "analyse",
       handlerDeps,
     );
 
@@ -149,7 +156,8 @@ describe("no substitution of any kind", () => {
   it("never returns another tenant's findings", async () => {
     const { handlerDeps } = deps();
     const result = await handleModuleRequest(
-      moduleRequest({ capability: CAP_CRAWL_FINDINGS }),
+      moduleRequest({ capability: CAP_READ_TECHNICAL_AUDIT }),
+      "analyse",
       handlerDeps,
     );
     expect(JSON.stringify(result)).not.toContain("TENANT::c");
@@ -158,8 +166,8 @@ describe("no substitution of any kind", () => {
 
   it("echoes the requested identity verbatim so Brain can detect a substitution", async () => {
     const { handlerDeps } = deps();
-    const request = moduleRequest({ capability: CAP_CRAWL_FINDINGS });
-    const result = await handleModuleRequest(request, handlerDeps);
+    const request = moduleRequest({ capability: CAP_READ_TECHNICAL_AUDIT });
+    const result = await handleModuleRequest(request, "analyse", handlerDeps);
 
     expect(result.businessId).toBe("biz-1");
     expect(result.websiteIdentity).toEqual({
@@ -174,42 +182,63 @@ describe("no substitution of any kind", () => {
 // ---------------------------------------------------------------------------
 
 describe("capability gating", () => {
-  it("allows each of the four declared capabilities", async () => {
+  it("declares exactly Digi Brain's six Stage 2A capability keys", () => {
+    expect(DECLARED_CAPABILITIES).toEqual([
+      "analyse.target_linkage",
+      "analyse.ownership_verification",
+      "execute.technical_audit",
+      "analyse.technical_audit",
+      "execute.recommendations",
+      "analyse.recommendations",
+    ]);
+  });
+
+  it("allows each declared analyse capability", async () => {
     const { handlerDeps } = deps();
-    for (const capability of DECLARED_CAPABILITIES) {
-      const result = await handleModuleRequest(moduleRequest({ capability }), handlerDeps);
+    for (const capability of DECLARED_CAPABILITIES.filter((key) => !isExecuteCapability(key))) {
+      const result = await handleModuleRequest(moduleRequest({ capability }), "analyse", handlerDeps);
       expect(result.dataAuthenticity).toBe("genuine");
     }
-    expect(DECLARED_CAPABILITIES).toHaveLength(4);
   });
 
   it("refuses an undeclared capability as a refusal, never an attempt", async () => {
     const { db, handlerDeps } = deps();
     await expectErrorCode(
-      handleModuleRequest(moduleRequest({ capability: "analyse.competitor_benchmark" }), handlerDeps),
+      handleModuleRequest(moduleRequest({ capability: "analyse.competitor_benchmark" }), "analyse", handlerDeps),
       "unsupported_capability",
     );
     // Nothing was read on the way to refusing.
     expect(db.calls).toHaveLength(0);
   });
 
-  it.each(Object.keys(WITHHELD_CAPABILITIES))(
-    "refuses the withheld write capability %s even with a valid actorId",
-    async (capability) => {
-      const { db, handlerDeps } = deps();
-      // Possession of the machine credential plus an actorId must not unlock a
-      // write: Contract v1 states actorId is never authorization, and SEO
-      // cannot map it to an SEO user identity at all yet.
-      await expectErrorCode(
-        handleModuleRequest(
-          moduleRequest({ capability, actorId: "brain-user-123" }),
-          handlerDeps,
-        ),
-        "unsupported_capability",
-      );
-      expect(db.calls).toHaveLength(0);
-    },
-  );
+  it("refuses an execute capability sent to the analyse family", async () => {
+    const { db, handlerDeps } = deps();
+    // A capability/path disagreement is refused rather than quietly routed.
+    await expectErrorCode(
+      handleModuleRequest(
+        moduleRequest({ capability: CAP_REQUEST_TECHNICAL_AUDIT }),
+        "analyse",
+        handlerDeps,
+      ),
+      "invalid_request",
+    );
+    expect(db.calls).toHaveLength(0);
+  });
+
+  it("refuses an analyse capability sent to the execute family", async () => {
+    const { handlerDeps } = deps();
+    await expectErrorCode(
+      handleModuleRequest(moduleRequest({ capability: CAP_TARGET_LINKAGE }), "execute", handlerDeps),
+      "invalid_request",
+    );
+  });
+
+  it("classifies exactly the two write capabilities as execute", () => {
+    expect(isExecuteCapability(CAP_REQUEST_TECHNICAL_AUDIT)).toBe(true);
+    expect(isExecuteCapability(CAP_GENERATE_RECOMMENDATIONS)).toBe(true);
+    expect(isExecuteCapability(CAP_TARGET_LINKAGE)).toBe(false);
+    expect(isExecuteCapability(CAP_READ_TECHNICAL_AUDIT)).toBe(false);
+  });
 
   it("refuses capabilities that would expose non-genuine SEO surfaces", async () => {
     const { handlerDeps } = deps();
@@ -223,7 +252,7 @@ describe("capability gating", () => {
       "execute.off_page_action",
     ]) {
       await expectErrorCode(
-        handleModuleRequest(moduleRequest({ capability }), handlerDeps),
+        handleModuleRequest(moduleRequest({ capability }), "analyse", handlerDeps),
         "unsupported_capability",
       );
     }
@@ -235,6 +264,7 @@ describe("actor identity", () => {
     const { handlerDeps } = deps();
     const result = await handleModuleRequest(
       moduleRequest({ capability: CAP_TARGET_LINKAGE, actorId: "brain-user-123" }),
+      "analyse",
       handlerDeps,
     );
     expect(result.actorId).toBe("brain-user-123");
@@ -244,6 +274,7 @@ describe("actor identity", () => {
     const { handlerDeps } = deps();
     const result = await handleModuleRequest(
       moduleRequest({ capability: CAP_TARGET_LINKAGE }),
+      "analyse",
       handlerDeps,
     );
     expect(result.actorId).toBeUndefined();
@@ -254,6 +285,7 @@ describe("actor identity", () => {
     await expectErrorCode(
       handleModuleRequest(
         moduleRequest({ capability: CAP_TARGET_LINKAGE, actorId: "   " }),
+        "analyse",
         handlerDeps,
       ),
       "invalid_request",
@@ -263,11 +295,13 @@ describe("actor identity", () => {
   it("does not use actorId to widen what a read returns", async () => {
     const { handlerDeps } = deps();
     const withActor = await handleModuleRequest(
-      moduleRequest({ capability: CAP_CRAWL_FINDINGS, actorId: "brain-user-123" }),
+      moduleRequest({ capability: CAP_READ_TECHNICAL_AUDIT, actorId: "brain-user-123" }),
+      "analyse",
       handlerDeps,
     );
     const withoutActor = await handleModuleRequest(
-      moduleRequest({ capability: CAP_CRAWL_FINDINGS }),
+      moduleRequest({ capability: CAP_READ_TECHNICAL_AUDIT }),
+      "analyse",
       handlerDeps,
     );
     expect(withActor.findings).toEqual(withoutActor.findings);
@@ -293,7 +327,7 @@ describe("Contract v1 envelope validation", () => {
     ],
   ])("refuses %s", async (_label, body) => {
     const { handlerDeps } = deps();
-    await expectErrorCode(handleModuleRequest(body, handlerDeps), "invalid_request");
+    await expectErrorCode(handleModuleRequest(body, "analyse", handlerDeps), "invalid_request");
   });
 
   it.each(["https://example.com", "www.example.com", "EXAMPLE.COM", "example.com/"])(
@@ -306,6 +340,7 @@ describe("Contract v1 envelope validation", () => {
             capability: CAP_TARGET_LINKAGE,
             websiteIdentity: { normalizedHost, assessedUrl: "https://www.example.com/" },
           }),
+          "analyse",
           handlerDeps,
         ),
         "invalid_request",
@@ -323,7 +358,8 @@ describe("authenticity and provenance", () => {
   it("reports crawler findings as genuine measurements", async () => {
     const { handlerDeps } = deps();
     const result = await handleModuleRequest(
-      moduleRequest({ capability: CAP_CRAWL_FINDINGS }),
+      moduleRequest({ capability: CAP_READ_TECHNICAL_AUDIT }),
+      "analyse",
       handlerDeps,
     );
 
@@ -345,7 +381,7 @@ describe("authenticity and provenance", () => {
     };
     const { handlerDeps } = deps(store);
     await expectErrorCode(
-      handleModuleRequest(moduleRequest({ capability: CAP_CRAWL_FINDINGS }), handlerDeps),
+      handleModuleRequest(moduleRequest({ capability: CAP_READ_TECHNICAL_AUDIT }), "analyse", handlerDeps),
       "not_genuine",
     );
   });
@@ -361,7 +397,8 @@ describe("authenticity and provenance", () => {
     };
     const { handlerDeps } = deps(store);
     const result = await handleModuleRequest(
-      moduleRequest({ capability: CAP_CRAWL_FINDINGS }),
+      moduleRequest({ capability: CAP_READ_TECHNICAL_AUDIT }),
+      "analyse",
       handlerDeps,
     );
     // Better to say nothing than to claim one version produced both.
@@ -371,7 +408,8 @@ describe("authenticity and provenance", () => {
   it("reports recommendations as genuine derivations carrying their stored method", async () => {
     const { handlerDeps } = deps();
     const result = await handleModuleRequest(
-      moduleRequest({ capability: CAP_CURRENT_RECOMMENDATIONS }),
+      moduleRequest({ capability: CAP_READ_RECOMMENDATIONS }),
+      "analyse",
       handlerDeps,
     );
 
@@ -389,7 +427,7 @@ describe("authenticity and provenance", () => {
     };
     const { handlerDeps } = deps(store);
     await expectErrorCode(
-      handleModuleRequest(moduleRequest({ capability: CAP_CURRENT_RECOMMENDATIONS }), handlerDeps),
+      handleModuleRequest(moduleRequest({ capability: CAP_READ_RECOMMENDATIONS }), "analyse", handlerDeps),
       "not_genuine",
     );
   });
@@ -401,6 +439,7 @@ describe("authenticity and provenance", () => {
     };
     const verified = await handleModuleRequest(
       moduleRequest({ capability: CAP_OWNERSHIP_VERIFICATION }),
+      "analyse",
       deps(verifiedStore).handlerDeps,
     );
     expect(verified.observationMethod).toBe("measured_external");
@@ -409,9 +448,12 @@ describe("authenticity and provenance", () => {
 
     // Never checked: the state is derived from the absence of a verification,
     // and must not be presented as a DNS observation that happened.
+    const uncheckedStore = baseStore();
+    uncheckedStore.ownership = {};
     const unchecked = await handleModuleRequest(
       moduleRequest({ capability: CAP_OWNERSHIP_VERIFICATION }),
-      deps().handlerDeps,
+      "analyse",
+      deps(uncheckedStore).handlerDeps,
     );
     expect(unchecked.observationMethod).toBe("calculated");
     expect(unchecked.provenance.basis).toBe("derived");
@@ -419,10 +461,10 @@ describe("authenticity and provenance", () => {
     expect(unchecked.findings[0].severity).toBe("high");
   });
 
-  it("marks every successful response genuine, as Brain refuses anything else", async () => {
+  it("marks every successful analyse response genuine, as Brain refuses anything else", async () => {
     const { handlerDeps } = deps();
-    for (const capability of DECLARED_CAPABILITIES) {
-      const result = await handleModuleRequest(moduleRequest({ capability }), handlerDeps);
+    for (const capability of DECLARED_CAPABILITIES.filter((key) => !isExecuteCapability(key))) {
+      const result = await handleModuleRequest(moduleRequest({ capability }), "analyse", handlerDeps);
       expect(result.dataAuthenticity).toBe("genuine");
     }
   });
