@@ -112,12 +112,31 @@ and the SEO user on an existing row are both immutable.
 
 ### Creating the first mapping: the operator bootstrap
 
-`public.seo_is_global_admin()` reads `public.profiles`, and this repository
-never creates that table. On a standalone SEO project, including
-`Digi_SEO_Test`, it therefore returns false for every user, so **no
-authenticated session can satisfy the INSERT policy and there is no reachable
-global admin to authorize the first mapping.** Without a way in, the delegated
-write path cannot be exercised at all.
+> **Corrected 2026-09-20 (migration `20260920120400`).** An earlier version of
+> this section said `public.seo_is_global_admin()` "effectively only depends on
+> `public.profiles`", which this repository never creates. **That rationale was
+> wrong** and the live `Digi_SEO_Test` state disproved it: migration
+> `20260720121000_seo_cross_project_identity_bridge` extends
+> `seo_is_global_admin()` through `public.seo_identity_profiles`, so
+> `public.profiles` is not its only source. The corrected reason is below. The
+> global-admin architecture itself is unchanged and is deliberately not
+> redesigned here.
+
+The bootstrap exists because **a target environment may contain no currently
+reachable global-admin identity at all.** Which table `seo_is_global_admin()`
+resolves an admin from is beside the point; what matters is that on
+`Digi_SEO_Test` no signed-in session satisfies it today, so **no authenticated
+session can satisfy the INSERT policy and there is no reachable global admin to
+authorize the first mapping.** Without a way in, the delegated write path cannot
+be exercised at all.
+
+Two consequences follow, and both are deliberate:
+
+* **Operator bootstrap requires an explicit human authorizer.** With no
+  reachable admin session there is no `auth.uid()` to read, so the authorizing
+  human is stated by the operator or the insert is refused.
+* **No identity is inferred, ever.** Not from an email, not from workspace
+  ownership, not from "the only admin", not from the session.
 
 `public.seo_brain_bootstrap_actor_link(p_brain_actor_id, p_seo_user_id,
 p_authorized_by)` is that way in, and nothing more. It is not an admin UI, not a
@@ -366,27 +385,82 @@ mapping and the delegated writes:
 
 ## 7. Apply boundary
 
-**STOP. The entire Stage 2B migration set is UNAPPLIED and nothing should be
-applied yet.** TEST integration is still pending.
+**State as of 2026-09-20, after the first controlled TEST run.** This section
+previously said the whole set was unapplied. It is not; TEST migration history
+is now the authoritative truth and it says otherwise.
 
-Four migrations, in order:
+| Migration | `Digi_SEO_Test` |
+|---|---|
+| `20260920120000_seo_brain_machine_boundary_identity.sql` | **applied** |
+| `20260920120100_seo_brain_delegated_read_rpcs.sql` | **applied** |
+| `20260920120200_seo_brain_actor_links.sql` | **applied** |
+| `20260920120300_seo_brain_delegated_write_rpcs.sql` | **applied** |
+| `20260920120400_seo_brain_stage2b_runtime_corrections.sql` | **NOT applied** |
 
-1. `20260920120000_seo_brain_machine_boundary_identity.sql`
-2. `20260920120100_seo_brain_delegated_read_rpcs.sql`
-3. `20260920120200_seo_brain_actor_links.sql`
-4. `20260920120300_seo_brain_delegated_write_rpcs.sql`
+TEST stands at 46 local = 46 remote migrations through `20260920120300`. The
+long-standing `20260720121000` (SSO identity bridge) discrepancy is resolved:
+it was physically present but unrecorded, and was repaired as applied during
+that run. **Do not repeat or undo that repair.**
 
-Before any apply to `Digi_SEO_Test`:
+Because the first four are applied and recorded, a defect in them is corrected
+**forward**, in a new migration, never by editing the applied file. An edit to
+an applied file would never run and would leave the database and the repository
+disagreeing.
 
-1. Run all four plus the verification script against a **local or fresh**
-   project first. That is not possible in the current environment.
-2. Independently recheck TEST migration history. The known situation is that
-   `20260720121000` (SSO identity bridge) is physically present on
-   `Digi_SEO_Test` but unrecorded in migration history. A `supabase db push`
-   would encounter it. That remains a separate, unresolved SSO task per
-   `SEO_DECISIONS.md` A14 and was deliberately not touched here.
-3. Review all four migrations explicitly.
-4. Reach an explicit apply approval.
+The verification script did **not** complete: it aborted in its prerequisite
+section before any mutation, which is the behaviour it is designed for. The
+Edge Function was not deployed, no actor or website links were created, no
+crawl was requested, and production was untouched.
+
+### The corrective migration: `20260920120400`
+
+Additive. Creates no table, no policy and no capability.
+
+1. **Host normalizer parity.** `seo_brain_normalize_host('not a url')` returned
+   `'not a url'` where TypeScript returns `null`, because the authority pattern
+   excluded `:[]/?#` and nothing else, so whitespace passed through as if it
+   were a canonical host. The corrected function mirrors the URL parser: ASCII
+   tab, LF and CR are removed from the input; leading and trailing C0 controls
+   and spaces are trimmed; **any other ASCII whitespace or C0/DEL control in the
+   host or port fails the parse.** The check runs on the authority after
+   userinfo and path/query/fragment are removed, because those parts may legally
+   contain a space and Digi Brain normalizes them successfully. Signature,
+   `IMMUTABLE`, security mode, `search_path` and grants are unchanged, and no
+   canonical valid-host output moves.
+2. **Privilege hardening** (below).
+3. **Corrected bootstrap rationale**, recorded as SQL comments on the affected
+   objects.
+
+**Known remaining normalizer divergence, recorded rather than hidden.** A
+non-ASCII host is punycoded by TypeScript (`münchen.de` to `xn--mnchen-3ya.de`)
+and returned unchanged by SQL. IDN conversion is not implementable as a small,
+safe correction in PL/pgSQL, and implementing a speculative URL parser in SQL is
+explicitly out of scope. An already-punycoded host passes both sides
+identically. No TEST website uses an IDN host today.
+
+### Privilege hardening, and the decision per table
+
+Supabase grants `ALL` on every new public table to `anon`, `authenticated` and
+`service_role` by default, and `service_role` additionally bypasses RLS. The
+first controlled TEST run found that `service_role` therefore held direct
+`INSERT`/`UPDATE` on `seo_brain_actor_links`. That made the deliberate
+revocation of `EXECUTE` on `seo_brain_bootstrap_actor_link` moot: the machine
+could simply insert the row. Corrected in `20260920120400`.
+
+| Table | Intended mutation path | Decision |
+|---|---|---|
+| `seo_brain_actor_links` | Human global admin, through RLS `TO authenticated`. No SECURITY DEFINER RPC behind it. | `service_role` loses `INSERT`/`UPDATE`/`DELETE`/`TRUNCATE`, **keeps `SELECT`** (`seo_brain_resolve_actor` is SECURITY INVOKER and reads it as `service_role`). `anon` loses everything. `authenticated` **keeps `SELECT`/`INSERT`/`UPDATE`** because that is the product path; loses `DELETE`. |
+| `seo_brain_website_links` | Human workspace owner/admin, through RLS `TO authenticated`. | Same treatment, same reasoning. `service_role` keeps `SELECT` because all four delegated read RPCs are SECURITY INVOKER. |
+| `seo_brain_operations` | The four SECURITY DEFINER delegated wrappers, which run as the table owner. A SELECT policy for members and **no write policy at all**. | No client role needs direct mutation, so `INSERT`/`UPDATE`/`DELETE` are revoked from all three. `SELECT` is left for `authenticated` (its member-read policy) and `service_role`. This is strictly narrower than the RLS posture already declared, so it removes no capability. |
+
+`authenticated` was checked against the RLS path rather than revoked by reflex:
+both authorization tables carry policies declared `TO authenticated` with no
+definer RPC behind them, so revoking the table privilege would have broken the
+intended human global-admin path outright.
+
+The verification script asserts all of this with `has_table_privilege` before
+any mutation, and additionally proves at runtime that a `service_role` session
+cannot insert into either authorization table.
 
 ### Crawler worker availability
 
@@ -398,6 +472,155 @@ audit request is accepted, returns a real job id, and then stays `queued`
 indefinitely. A genuine end to end acceptance test therefore needs an operator
 run worker with `CRAWLER_ENV` **not** starting with `test`, so fixture
 transport cannot engage and the crawl is real HTTP.
+
+#### Crawler reality check (2026-09-20): a genuine crawler EXISTS
+
+The first controlled TEST run flagged that `crawler-worker/package.json` still
+describes the worker as *"Phase 1B skeleton - job lifecycle only; no crawling"*.
+**That description is stale. The implementation disproves it.** Evidence, read
+from the wired code path rather than from documentation:
+
+* `crawler-worker/src/worker.ts:4,23,93` constructs and calls
+  **`DiscoveryProcessor`**, not `SkeletonProcessor`. `src/processor.ts`
+  (`SkeletonProcessor`, the genuine "no crawling" class) is **not referenced by
+  the worker at all** and survives only as unused Phase 1B code.
+* `src/discovery/discoveryProcessor.ts` runs the real Phase 1C/1D pipeline:
+  `DiscoveryEngine` over robots.txt and sitemaps, `extractPageFacts` per page,
+  `detectPageIssues` plus `detectSiteDuplicates`, then `publishJobResults`.
+* `src/discovery/safeHttpTransport.ts` performs real HTTP over `node:http` /
+  `node:https` with `DigibilitySEO-Crawler/0.1` as its user agent, redirect
+  handling and IP/URL safety checks. It is the default transport;
+  `FixtureTransport` is substituted **only** when `CRAWLER_FIXTURE_TRANSPORT` is
+  set *and* `CRAWLER_ENV` starts with `test` (`src/config.ts:96-99`).
+
+**Classification: A. A genuine crawler exists and can satisfy Stage 2B
+acceptance.** The stale `package.json` description is a documentation defect,
+not a missing capability, and is not a Stage 2B blocker.
+
+Two operator conditions do apply, and both are ordinary configuration rather
+than missing code:
+
+1. **Job eligibility.** `DiscoveryProcessor` refuses any job whose idempotency
+   key does not start with `CRAWLER_TEST_JOB_PREFIX` (default
+   `PHASE16D-VERIFY-`) unless `CRAWLER_ALLOW_NON_TEST_JOBS=true`. The key the
+   delegated wrapper hands the control plane is Brain's own
+   `idempotencyKey` with `'@' || website_id` appended
+   (`20260920120300`, `v_crawl_key`). So for acceptance either send a Brain
+   `idempotencyKey` that starts with the configured prefix, or set
+   `CRAWLER_ALLOW_NON_TEST_JOBS=true` in the TEST worker shell.
+2. **Poll mode.** `src/index.ts:88-94` refuses `--mode=poll` unless
+   `CRAWLER_ALLOW_NON_TEST_JOBS=true`, and its message still says "no real
+   crawler processor exists yet", which is the same stale claim. Use
+   `--mode=one-shot` with an eligible job, or set the flag.
+
+### Genuine ownership verification for TEST acceptance
+
+`execute.technical_audit` preserves the P1a verified-ownership requirement, so
+Stage 2B acceptance needs a website whose `seo_ownership_verifications.status`
+is genuinely `verified`. **That row is never to be manufactured**: seeding it,
+updating it by hand, or relaxing the check would falsify the exact invariant the
+acceptance is meant to prove. The only legitimate route is the existing locked
+P1a DNS TXT path, end to end.
+
+**Recommended TEST target: `digibility.ai`.**
+
+| Item | Value |
+|---|---|
+| TEST project | `Digi_SEO_Test`, ref `snyzotgwwfomgafrsvfm` |
+| `seo_websites.id` | `fb98d59c-0f7d-4724-9f60-9db385bf2592` |
+| Host (`verification_host`) | `digibility.ai` |
+| Canonical Brain host (`seo_brain_normalize_host`) | `digibility.ai` |
+| Current verification state | `revoked` as of 2026-07-17, after a real `failed` / `dns_not_found` worker run on 2026-07-19 |
+
+It is the right target for one reason that matters more than convenience: it is
+a domain the organization actually controls, so the required DNS TXT record can
+be published legitimately. Every other website seeded on TEST
+(`brainverify-a.test`, `r1-site-a.example`, `c2-site-a.example`,
+`ui-seed-digibility.example`) sits under `.test` or `.example`, which are
+reserved names that resolve nowhere and can never carry a real TXT record. **If
+`digibility.ai`'s DNS is not available to this operator, there is no other
+existing TEST website that can be genuinely verified, and that is a hard
+blocker rather than something to work around.**
+
+**How the path works.** `seo_ownership_verification_initiate` mints a CSPRNG
+challenge token of the form `digibility-site-verification=<64 hex>` and stores a
+`pending` row. `seo_ownership_verification_claim` (service role only) hands the
+worker the record name `_digibility-site-verification.<verification_host>` and
+that exact token as the expected value. The worker resolves TXT over real Node
+DNS, joins each record's chunks per RFC 1035 and requires an **exact** match:
+no substring, no case folding, no reconstruction across records. The result is
+written by `seo_ownership_verification_record_result`, which validates the open
+claim and appends one customer-visible event.
+
+**Operator procedure. Steps 2 and 3 are external actions for a human; nothing
+here is performed by this session.**
+
+1. **Re-initiate**, as the workspace owner, signed in to the SEO TEST app: open
+   the website's ownership panel and use **Verify ownership**. The current row
+   is `revoked`, so this rotates a fresh token and returns the row to `pending`.
+   Then read the token in a direct operator SQL session:
+
+   ```sql
+   SELECT id, verification_host, status,
+          '_digibility-site-verification.' || verification_host AS txt_name,
+          challenge_token AS txt_value
+   FROM public.seo_ownership_verifications
+   WHERE website_id = 'fb98d59c-0f7d-4724-9f60-9db385bf2592'::uuid
+     AND method = 'dns_txt';
+   ```
+
+2. **Publish the DNS TXT record** at the organization's DNS provider for
+   `digibility.ai`:
+
+   | Field | Value |
+   |---|---|
+   | Name | `_digibility-site-verification` (so the FQDN is `_digibility-site-verification.digibility.ai`) |
+   | Type | `TXT` |
+   | Value | the `challenge_token` from step 1, verbatim |
+   | TTL | short, for example 300 |
+
+   Treat the token as a secret: do not paste it into a ticket, a screenshot or
+   a chat log.
+
+3. **Wait for propagation**, then confirm independently before spending a claim:
+
+   ```bash
+   dig +short TXT _digibility-site-verification.digibility.ai
+   ```
+
+4. **Run verify-once** from `crawler-worker/`, with `crawler-worker/.env`
+   exported and `SUPABASE_SERVICE_ROLE_KEY` set for `Digi_SEO_Test`. Leave
+   `CRAWLER_VERIFICATION_FIXTURE_DNS` unset so real DNS is used:
+
+   ```bash
+   npm start -- --mode=verify-once
+   ```
+
+   This is the same binary and the same RPC path already accepted on
+   2026-07-19; only the DNS outcome differs.
+
+5. **Evidence of success**, recorded from the database rather than from worker
+   output alone:
+
+   ```sql
+   SELECT status, verified_at, last_checked_at, failure_reason
+   FROM public.seo_ownership_verifications
+   WHERE website_id = 'fb98d59c-0f7d-4724-9f60-9db385bf2592'::uuid;
+
+   SELECT event_type, from_status, to_status, actor, created_at
+   FROM public.seo_ownership_verification_events
+   WHERE website_id = 'fb98d59c-0f7d-4724-9f60-9db385bf2592'::uuid
+   ORDER BY created_at DESC LIMIT 3;
+   ```
+
+   A genuine pass is `status = 'verified'` with a non-null `verified_at`, a
+   null `failure_reason`, and one new event row with `event_type = 'verified'`,
+   `from_status = 'pending'` and `actor = 'worker'`. The worker exits 0 and logs
+   `verify_once` with outcome `verified`; the challenge value, the lease token
+   and the service-role key are never printed.
+
+   A `failed` / `dns_not_found` outcome means the TXT record was not visible
+   yet. Fix DNS and re-run; **never** write the verified row by hand.
 
 ### TEST acceptance: the real service-role delegated path
 

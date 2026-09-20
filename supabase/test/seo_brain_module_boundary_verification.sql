@@ -13,6 +13,7 @@
 --   * 20260920120100_seo_brain_delegated_read_rpcs.sql
 --   * 20260920120200_seo_brain_actor_links.sql
 --   * 20260920120300_seo_brain_delegated_write_rpcs.sql
+--   * 20260920120400_seo_brain_stage2b_runtime_corrections.sql
 --
 -- Self-contained + self-seeding: creates its own disposable workspaces,
 -- memberships, websites, audit runs/issues, recommendations and links, reusing
@@ -34,6 +35,11 @@
 --     NULL generation_method are both excluded;
 --   * grants: anon and authenticated are denied EXECUTE on all four delegated
 --     RPCs; service_role is granted;
+--   * table privileges (20260920120400): service_role holds SELECT but NOT
+--     INSERT/UPDATE/DELETE on the two human-authorization tables, so the
+--     machine identity cannot create an authorization even though it bypasses
+--     RLS; anon holds nothing; authenticated keeps exactly the privileges its
+--     global-admin / owner-admin RLS policies need;
 --   * link RLS: a client role cannot authorize a link; an owner can;
 --   * actor mapping: exact active resolution, unknown actor, revoked actor,
 --     no email/owner/linked_by fallback, and the fact that a mapping grants
@@ -109,6 +115,15 @@ BEGIN
       'PREREQUISITE FAILED: public.seo_brain_bootstrap_actor_link is absent. Re-apply 20260920120200_seo_brain_actor_links.sql.';
   END IF;
 
+  -- The corrective migration must be applied too, or Section 0 and Section 1b
+  -- below would fail deep inside an assertion rather than here with a clear
+  -- instruction. Detected by BEHAVIOUR, not by a version string: the pre-
+  -- correction normalizer returned 'not a url' verbatim for this input.
+  IF public.seo_brain_normalize_host('not a url') IS NOT NULL THEN
+    RAISE EXCEPTION
+      'PREREQUISITE FAILED: public.seo_brain_normalize_host still admits whitespace in a host. Apply 20260920120400_seo_brain_stage2b_runtime_corrections.sql first.';
+  END IF;
+
   -- This script mutates. It must never touch a project holding real customers.
   IF EXISTS (SELECT 1 FROM public.seo_brain_website_links WHERE business_id LIKE 'brain-biz-%')
      OR EXISTS (SELECT 1 FROM public.seo_brain_actor_links WHERE brain_actor_id LIKE 'BRAINVERIFY-actor-%')
@@ -143,7 +158,43 @@ BEGIN
       ('https://user:pass@example.com/x',     'example.com'),
       ('',                                    NULL),
       ('   ',                                 NULL),
-      ('not a url',                           NULL)
+      ('not a url',                           NULL),
+      -- --------------------------------------------------------------------
+      -- Whitespace and control characters (added by 20260920120400). The pre-
+      -- correction function returned 'not a url' for the row above and a bare
+      -- control character for the two lone-whitespace rows below.
+      --
+      -- ASCII tab, LF and CR are REMOVED from the input by the URL parser, so
+      -- these three normalize rather than fail. This is the parser's own rule,
+      -- pinned here so the SQL cannot quietly start rejecting them.
+      (E'exa\tmple.com',                      'example.com'),
+      (E'exa\nmple.com',                      'example.com'),
+      (E'exa\rmple.com',                      'example.com'),
+      -- Every OTHER ASCII whitespace or control character inside the host is a
+      -- parse failure: space, form feed and vertical tab all fail closed.
+      ('exa mple.com',                        NULL),
+      ('example .com',                        NULL),
+      (E'exa\fmple.com',                      NULL),
+      (E'exa\x0bmple.com',                    NULL),
+      -- ...and in the port, which is part of the authority.
+      ('https://example.com:84 43',           NULL),
+      (E'https://example.com\f/x',            NULL),
+      -- Leading/trailing whitespace is trimmed, including whitespace that is
+      -- not the space character. btrim/1 stripped only spaces before.
+      (' example.com ',                       'example.com'),
+      (E'\texample.com',                      'example.com'),
+      (E'\t',                                 NULL),
+      (E'\f',                                 NULL),
+      (E'\x0b',                               NULL),
+      -- Whitespace OUTSIDE the host and port is not the host's business: the
+      -- URL parser accepts it in a path, a query, a fragment and in userinfo,
+      -- and so must this function, or it would start refusing URLs Digi Brain
+      -- normalizes successfully.
+      ('https://example.com/a b',             'example.com'),
+      ('https://example.com/?q=a b',          'example.com'),
+      ('https://example.com/x#a b',           'example.com'),
+      ('https://us er:pa ss@example.com/x',   'example.com'),
+      (E'https://exa\tmple.com:8443/p a th',  'example.com:8443')
     ) AS t(input, expected)
   LOOP
     IF public.seo_brain_normalize_host(c.input) IS DISTINCT FROM c.expected THEN
@@ -182,6 +233,100 @@ BEGIN
       RAISE EXCEPTION 'service_role must execute %', fn;
     END IF;
   END LOOP;
+END $$;
+
+-- ---------------------------------------------------------------------------
+-- 1b. TABLE privileges (20260920120400), asserted BEFORE any mutation.
+--
+-- WHY THIS SECTION EXISTS. Supabase grants ALL on every new public table to
+-- anon, authenticated and service_role by default, and service_role bypasses
+-- RLS. Section 1 above proves the machine cannot EXECUTE the bootstrap RPC, but
+-- that proves nothing on its own while the default table grant lets it INSERT
+-- the same row directly. The first controlled TEST run found exactly that. RLS
+-- policy assertions and function-grant assertions are both blind to it, so the
+-- privilege itself is asserted here.
+--
+-- THE INVARIANT. An actor mapping and a website link are HUMAN authorizations.
+-- The machine identity may read them and may never create, alter or erase one.
+-- ---------------------------------------------------------------------------
+DO $$
+DECLARE
+  t text;
+BEGIN
+  FOREACH t IN ARRAY ARRAY[
+    'public.seo_brain_actor_links',
+    'public.seo_brain_website_links'
+  ] LOOP
+    -- service_role: read yes, write never. SELECT is required, because
+    -- seo_brain_resolve_actor and the four delegated read RPCs are SECURITY
+    -- INVOKER and read these tables as service_role.
+    IF NOT has_table_privilege('service_role', t, 'SELECT') THEN
+      RAISE EXCEPTION 'service_role must retain SELECT on % (the SECURITY INVOKER read RPCs depend on it)', t;
+    END IF;
+    IF has_table_privilege('service_role', t, 'INSERT') THEN
+      RAISE EXCEPTION 'service_role must NOT hold INSERT on %: the machine identity bypasses RLS and would be able to mint its own human authorization', t;
+    END IF;
+    IF has_table_privilege('service_role', t, 'UPDATE') THEN
+      RAISE EXCEPTION 'service_role must NOT hold UPDATE on %: it bypasses RLS and could revoke or alter a human authorization', t;
+    END IF;
+    IF has_table_privilege('service_role', t, 'DELETE') THEN
+      RAISE EXCEPTION 'service_role must NOT hold DELETE on %: authorization history is append-only', t;
+    END IF;
+
+    -- anon: nothing at all. No policy names anon, so RLS already denied it;
+    -- this closes the privilege too, so a later policy cannot widen anon by
+    -- accident.
+    IF has_table_privilege('anon', t, 'SELECT')
+       OR has_table_privilege('anon', t, 'INSERT')
+       OR has_table_privilege('anon', t, 'UPDATE')
+       OR has_table_privilege('anon', t, 'DELETE') THEN
+      RAISE EXCEPTION 'anon must hold no privilege on %', t;
+    END IF;
+
+    -- authenticated: the INTENDED human path, deliberately preserved. Both
+    -- tables authorize through RLS policies declared TO authenticated with no
+    -- SECURITY DEFINER RPC behind them, so revoking these would break the
+    -- product, not harden it. Asserted positively so a future over-zealous
+    -- REVOKE is caught here rather than by a customer.
+    IF NOT has_table_privilege('authenticated', t, 'SELECT') THEN
+      RAISE EXCEPTION 'authenticated must retain SELECT on %: the member/admin read policy depends on it', t;
+    END IF;
+    IF NOT has_table_privilege('authenticated', t, 'INSERT') THEN
+      RAISE EXCEPTION 'authenticated must retain INSERT on %: the human global-admin / owner-admin authorization policy depends on it', t;
+    END IF;
+    IF NOT has_table_privilege('authenticated', t, 'UPDATE') THEN
+      RAISE EXCEPTION 'authenticated must retain UPDATE on %: revocation is an UPDATE under RLS', t;
+    END IF;
+    -- No DELETE policy exists on either table: an authorization is revoked,
+    -- never erased.
+    IF has_table_privilege('authenticated', t, 'DELETE') THEN
+      RAISE EXCEPTION 'authenticated must NOT hold DELETE on %: authorization history is append-only', t;
+    END IF;
+  END LOOP;
+
+  -- seo_brain_operations is a correlation index written ONLY by the four
+  -- SECURITY DEFINER delegated wrappers, which run as the table owner. It has a
+  -- SELECT policy for workspace members and no write policy at all, so no
+  -- client role needs direct mutation on it.
+  IF has_table_privilege('service_role', 'public.seo_brain_operations', 'INSERT')
+     OR has_table_privilege('service_role', 'public.seo_brain_operations', 'UPDATE')
+     OR has_table_privilege('service_role', 'public.seo_brain_operations', 'DELETE') THEN
+    RAISE EXCEPTION 'service_role must NOT mutate public.seo_brain_operations directly; the delegated SECURITY DEFINER wrappers are the only write path';
+  END IF;
+  IF has_table_privilege('authenticated', 'public.seo_brain_operations', 'INSERT')
+     OR has_table_privilege('authenticated', 'public.seo_brain_operations', 'UPDATE')
+     OR has_table_privilege('authenticated', 'public.seo_brain_operations', 'DELETE') THEN
+    RAISE EXCEPTION 'authenticated must NOT mutate public.seo_brain_operations directly; there is deliberately no human write path';
+  END IF;
+  IF has_table_privilege('anon', 'public.seo_brain_operations', 'SELECT')
+     OR has_table_privilege('anon', 'public.seo_brain_operations', 'INSERT')
+     OR has_table_privilege('anon', 'public.seo_brain_operations', 'UPDATE')
+     OR has_table_privilege('anon', 'public.seo_brain_operations', 'DELETE') THEN
+    RAISE EXCEPTION 'anon must hold no privilege on public.seo_brain_operations';
+  END IF;
+  IF NOT has_table_privilege('authenticated', 'public.seo_brain_operations', 'SELECT') THEN
+    RAISE EXCEPTION 'authenticated must retain SELECT on public.seo_brain_operations: the workspace-member read policy depends on it';
+  END IF;
 END $$;
 
 -- ---------------------------------------------------------------------------
@@ -475,11 +620,14 @@ END $$;
 
 -- The POSITIVE creation path, exercised for real rather than bypassed.
 --
--- Why not the authenticated global-admin INSERT policy: public.seo_is_global_admin()
--- reads public.profiles, which this repository never creates, so on a standalone
--- SEO project it returns false for every user and no session can satisfy that
--- policy. That limitation is recorded in the migration and in
--- SEO_BRAIN_MODULE_INTERFACE.md. The reachable positive path today is the
+-- Why not the authenticated global-admin INSERT policy: this project has no
+-- currently reachable global-admin identity, so no signed-in session satisfies
+-- public.seo_is_global_admin() and none can create the FIRST mapping. (The
+-- earlier claim here, that the function "reads public.profiles" and nothing
+-- else, was wrong: 20260720121000_seo_cross_project_identity_bridge extends it
+-- through public.seo_identity_profiles. The absence of a reachable admin is the
+-- real reason, and it is corrected in 20260920120400 and in
+-- SEO_BRAIN_MODULE_INTERFACE.md.) The reachable positive path today is the
 -- controlled operator bootstrap, and it is what runs here.
 --
 -- Note the explicit third argument: the authorizing SEO user is stated, never
@@ -644,6 +792,39 @@ BEGIN
     RESET ROLE;
     RAISE EXCEPTION 'a non-admin must not be able to authorize an actor mapping';
   EXCEPTION WHEN insufficient_privilege OR check_violation THEN
+    RESET ROLE;
+  END;
+END $$;
+RESET ROLE;
+
+-- The same invariant for the MACHINE identity, exercised for real rather than
+-- read from the catalogue. service_role bypasses RLS, so no policy can stop it
+-- and only the revoked table privilege can. Section 1b asserts the privilege;
+-- this proves the privilege actually bites.
+DO $$
+BEGIN
+  SET LOCAL ROLE service_role;
+  BEGIN
+    INSERT INTO public.seo_brain_actor_links (brain_actor_id, seo_user_id)
+    VALUES ('BRAINVERIFY-actor-machine-minted', current_setting('b1.nomem')::uuid);
+    RESET ROLE;
+    RAISE EXCEPTION 'service_role must not be able to create an actor mapping directly; it bypasses RLS, so the table privilege is the only thing standing in its way';
+  EXCEPTION WHEN insufficient_privilege THEN
+    RESET ROLE;
+  END;
+END $$;
+RESET ROLE;
+
+DO $$
+BEGIN
+  SET LOCAL ROLE service_role;
+  BEGIN
+    INSERT INTO public.seo_brain_website_links (business_id, normalized_host, workspace_id, website_id)
+    VALUES ('brain-biz-machine-minted', 'x', 'b1000000-0000-4000-8000-000000000001',
+            'b1000000-0000-4000-8000-00000000000b');
+    RESET ROLE;
+    RAISE EXCEPTION 'service_role must not be able to create a Digi Brain website link directly';
+  EXCEPTION WHEN insufficient_privilege THEN
     RESET ROLE;
   END;
 END $$;

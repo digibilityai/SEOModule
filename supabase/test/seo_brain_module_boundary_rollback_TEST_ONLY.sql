@@ -1,11 +1,16 @@
 -- =============================================================================
 -- ROLLBACK: Digi Brain Module Contract v1, Stage 2B machine boundary
 --   migrations 20260920120000 + 20260920120100 + 20260920120200 + 20260920120300
+--   + 20260920120400 (the additive runtime corrections)
 -- =============================================================================
 --                          ****  TEST ONLY  ****
 --                    ****  DO NOT RUN ON PRODUCTION  ****
 --
--- All four migrations are purely ADDITIVE: they create three new tables, two
+-- 20260920120400 needs no statement of its own here: it replaces one function
+-- body in place and revokes table privileges, and both the function and the
+-- tables are dropped below, so its effects go with them.
+--
+-- All five migrations are purely ADDITIVE: they create three new tables, two
 -- new trigger functions, one new normalizer, four read functions and six
 -- delegated write/status/helper functions, and they alter nothing that already
 -- existed. In particular no grant on seo_crawl_request_audit or
