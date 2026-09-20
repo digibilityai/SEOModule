@@ -697,7 +697,32 @@ BEGIN
     RESET ROLE;
   END;
 END $$;
+-- OPERATOR STATE. The sections above deliberately simulate an authenticated
+-- session. Returning to operator context therefore means clearing BOTH the role
+-- and the GUCs that auth.uid() and auth.role() actually read, not the role
+-- alone. On this project those are, verbatim from the catalogue:
+--   auth.uid()  = coalesce(nullif(request.jwt.claim.sub,  ''), claims->>'sub')
+--   auth.role() = coalesce(nullif(request.jwt.claim.role, ''), claims->>'role')
+-- so request.jwt.claims, request.jwt.claim.sub and request.jwt.claim.role are
+-- all cleared. The legacy singular GUCs are cleared even though this script
+-- never sets them, because auth.uid() consults them and an operator session
+-- that happened to carry one would break the bootstrap in the same way.
+--
+-- WHY THIS IS WRITTEN AT SESSION SCOPE AND NOT LEFT TO A BARE RESET ROLE.
+-- The simulated claims above are written with set_config(..., is_local => true),
+-- which unsets them when the surrounding TRANSACTION ends. Under autocommit,
+-- where every top-level statement is its own transaction, that happens
+-- immediately and the leak is invisible. When the WHOLE script runs inside ONE
+-- transaction, which is how the Supabase Management API query endpoint executes
+-- it, the claims instead survive into the next section and auth.uid() stays
+-- non-NULL. Writing '' at SESSION scope clears them under BOTH execution
+-- models, which is the property this script needs. Nothing downstream depends
+-- on these staying set: every later section that wants a simulated session
+-- establishes its own claims again.
 RESET ROLE;
+SELECT set_config('request.jwt.claims',     '', false),
+       set_config('request.jwt.claim.sub',  '', false),
+       set_config('request.jwt.claim.role', '', false);
 
 -- ---------------------------------------------------------------------------
 -- 6b. Actor mapping: identity only, never permission.
@@ -736,6 +761,43 @@ END $$;
 -- SEO_BRAIN_MODULE_INTERFACE.md.) The reachable positive path today is the
 -- controlled operator bootstrap, and it is what runs here.
 --
+-- OPERATOR STATE ASSERTED, not assumed, immediately before the bootstrap.
+--
+-- seo_brain_bootstrap_actor_link refuses to run when auth.uid() IS NOT NULL.
+-- That guard is PRODUCTION behaviour and is deliberately neither weakened nor
+-- worked around here: it is the reason the machine identity and any signed-in
+-- session are barred from minting the first actor mapping. What this block
+-- does is prove the HARNESS has established the operator context the bootstrap
+-- is designed for, so that a leak from an earlier simulated-auth section fails
+-- here with a message naming the cause, instead of surfacing as a confusing
+-- refusal from inside the RPC.
+--
+-- This is exactly the failure a one-transaction run of this script produced
+-- before the session-scope resets above were added.
+DO $$
+DECLARE
+  v_claims text := coalesce(current_setting('request.jwt.claims',     true), '');
+  v_sub    text := coalesce(current_setting('request.jwt.claim.sub',  true), '');
+  v_role   text := coalesce(current_setting('request.jwt.claim.role', true), '');
+BEGIN
+  IF auth.uid() IS NOT NULL THEN
+    RAISE EXCEPTION
+      'OPERATOR STATE NOT ESTABLISHED: auth.uid() is % and must be NULL before the bootstrap. A simulated authenticated session leaked from an earlier section, which happens when the whole script runs in one transaction and the claims were only cleared transaction-locally.', auth.uid();
+  END IF;
+  IF auth.role() IS NOT NULL THEN
+    RAISE EXCEPTION
+      'OPERATOR STATE NOT ESTABLISHED: auth.role() is % and must be NULL before the bootstrap.', auth.role();
+  END IF;
+  IF v_claims <> '' OR v_sub <> '' OR v_role <> '' THEN
+    RAISE EXCEPTION
+      'OPERATOR STATE NOT ESTABLISHED: a simulated JWT is still present (claims=%, claim.sub=%, claim.role=%).', v_claims, v_sub, v_role;
+  END IF;
+  IF current_user IS DISTINCT FROM session_user THEN
+    RAISE EXCEPTION
+      'OPERATOR STATE NOT ESTABLISHED: current_user is % but session_user is %; a SET ROLE from an earlier section is still in effect.', current_user, session_user;
+  END IF;
+END $$;
+
 -- Note the explicit third argument: the authorizing SEO user is stated, never
 -- inferred from the linked user, an email, a name or workspace ownership.
 DO $$
@@ -901,7 +963,13 @@ BEGIN
     RESET ROLE;
   END;
 END $$;
+-- Back to operator state: role AND the auth GUCs, at session scope, so this
+-- behaves identically under autocommit and under one-transaction execution.
+-- See the fuller note at the first occurrence.
 RESET ROLE;
+SELECT set_config('request.jwt.claims',     '', false),
+       set_config('request.jwt.claim.sub',  '', false),
+       set_config('request.jwt.claim.role', '', false);
 
 -- The same invariant for the MACHINE identity, exercised for real rather than
 -- read from the catalogue. service_role bypasses RLS, so no policy can stop it
@@ -919,7 +987,13 @@ BEGIN
     RESET ROLE;
   END;
 END $$;
+-- Back to operator state: role AND the auth GUCs, at session scope, so this
+-- behaves identically under autocommit and under one-transaction execution.
+-- See the fuller note at the first occurrence.
 RESET ROLE;
+SELECT set_config('request.jwt.claims',     '', false),
+       set_config('request.jwt.claim.sub',  '', false),
+       set_config('request.jwt.claim.role', '', false);
 
 DO $$
 BEGIN
@@ -934,7 +1008,13 @@ BEGIN
     RESET ROLE;
   END;
 END $$;
+-- Back to operator state: role AND the auth GUCs, at session scope, so this
+-- behaves identically under autocommit and under one-transaction execution.
+-- See the fuller note at the first occurrence.
 RESET ROLE;
+SELECT set_config('request.jwt.claims',     '', false),
+       set_config('request.jwt.claim.sub',  '', false),
+       set_config('request.jwt.claim.role', '', false);
 
 -- ---------------------------------------------------------------------------
 -- 6c. Delegated writes: ownership preserved, real job id, STATUS correlation.

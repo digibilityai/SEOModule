@@ -612,7 +612,7 @@ P1a DNS TXT path, end to end.
 | `seo_websites.id` | `fb98d59c-0f7d-4724-9f60-9db385bf2592` |
 | Host (`verification_host`) | `digibility.ai` |
 | Canonical Brain host (`seo_brain_normalize_host`) | `digibility.ai` |
-| Current verification state | `revoked` as of 2026-07-17, after a real `failed` / `dns_not_found` worker run on 2026-07-19 |
+| Current verification state | **`failed`**, verified by direct query against `Digi_SEO_Test` on 2026-09-20. An earlier version of this table said `revoked` and was internally inconsistent: it dated the revocation to 2026-07-17 and then described a real `failed` / `dns_not_found` worker run on 2026-07-19, which is what actually left the row in its present state. `failed` and `revoked` are treated identically by the re-initiation path, so the procedure below is unaffected. |
 
 It is the right target for one reason that matters more than convenience: it is
 a domain the organization actually controls, so the required DNS TXT record can
@@ -639,7 +639,9 @@ here is performed by this session.**
 
 1. **Re-initiate**, as the workspace owner, signed in to the SEO TEST app: open
    the website's ownership panel and use **Verify ownership**. The current row
-   is `revoked`, so this rotates a fresh token and returns the row to `pending`.
+   is `failed`, which `seo_ownership_verification_initiate` treats exactly as it
+   treats `revoked` (both restart with a fresh token), so this rotates a fresh
+   token and returns the row to `pending`.
    Then read the token in a direct operator SQL session:
 
    ```sql
