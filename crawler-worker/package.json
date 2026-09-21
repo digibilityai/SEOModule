@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Digibility SEO crawler worker (Phase 1B skeleton — job lifecycle only; no crawling).",
+  "description": "Digibility SEO crawler worker. Phase 1C/1D discovery, extraction, deterministic issue detection and publishing over real HTTP (DiscoveryProcessor). Non-test jobs are refused unless CRAWLER_ALLOW_NON_TEST_JOBS is set.",
   "engines": {
     "node": ">=20"
   },
@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "node --import tsx --test test/*.test.ts",
     "start": "tsx src/index.ts",
-    "dry-run": "tsx src/index.ts --mode=dry-run"
+    "dry-run": "tsx src/index.ts --mode=dry-run",
+    "test:integration": "node --import tsx --test test/integration/*.test.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.50.3",

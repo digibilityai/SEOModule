@@ -2,7 +2,8 @@
 //   --mode=dry-run     validate config + connectivity + worker RPC availability; no claim/mutation
 //   --mode=one-shot    claim + process ONE crawl job (test jobs only unless dev flag), then exit
 //   --mode=poll        production-shaped crawl loop; REFUSES to run unless the dev flag is set
-//                      (no real crawler processor exists yet)
+//                      (the gate is the non-test-job guard, NOT a missing crawler:
+//                       DiscoveryProcessor performs a real Phase 1C/1D crawl)
 //   --mode=verify-once claim + resolve ONE DNS-TXT ownership-verification item, then exit
 //                      (P1a Step 3; fully independent of the crawl processor)
 import { loadConfig, redactConfig } from "./config.js";
@@ -87,7 +88,7 @@ async function main(): Promise<number> {
   // poll
   if (!cfg.allowNonTestJobs) {
     log.error(
-      "poll mode is disabled: no real crawler processor exists yet. Set CRAWLER_ALLOW_NON_TEST_JOBS=true only in a safe dev/TEST context, or use --mode=one-shot with a tagged TEST job.",
+      "poll mode is disabled: it would claim untagged customer jobs. Set CRAWLER_ALLOW_NON_TEST_JOBS=true only in a safe dev/TEST context, or use --mode=one-shot with a tagged TEST job.",
       { action: "poll_refused", outcome: "blocked" },
     );
     return 2;

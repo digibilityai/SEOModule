@@ -17,6 +17,10 @@ export default defineConfig({
   },
   test: {
     environment: "node",
-    include: ["src/**/*.test.ts"],
+    // The second pattern covers the server-side machine boundary
+    // (supabase/functions/seo-module-api). Those files import nothing from
+    // src/, so they cannot reach the browser service-adapter or mock layer;
+    // they live outside src/ for that reason and still need to be tested.
+    include: ["src/**/*.test.ts", "supabase/functions/**/*.test.ts"],
   },
 });
