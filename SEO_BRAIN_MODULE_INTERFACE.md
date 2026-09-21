@@ -579,6 +579,42 @@ from the wired code path rather than from documentation:
 acceptance.** The stale `package.json` description is a documentation defect,
 not a missing capability, and is not a Stage 2B blocker.
 
+> **Runtime defect found during acceptance on 2026-09-21, corrected in
+> `20260920120500`'s follow-up commit (no migration).** The classification above
+> was reached by reading the wired code path, and the code path is genuine. It
+> was nonetheless UNRUNNABLE on Node 20 and later, which the code reading did
+> not reveal and no test could see.
+>
+> **Symptom.** Every fetch failed with `network_error` and `http_requests: 0`,
+> for `digibility.ai` and for a neutral control host alike. Crawl job
+> `8e982ce8-3ac5-49a4-8d63-587047701c63` (audit run `ce6653de`) is the genuine
+> record of that failure and is kept as evidence.
+>
+> **Root cause.** Since Node 20, address-family autoselection
+> (`net.getDefaultAutoSelectFamily() === true`) calls a custom `lookup` with
+> `{ all: true }` and expects an ARRAY of `{ address, family }` back.
+> `safeLookup` in `crawler-worker/src/discovery/safeHttpTransport.ts` always
+> replied with the single-address shape, so Node read `address` as `undefined`
+> and raised `ERR_INVALID_IP_ADDRESS`, which `oneHop` reduced to an unexplained
+> `network_error`. Real crawls last succeeded on 2026-07-15, so this is a
+> runtime regression rather than a crawler that never worked.
+>
+> **Correction.** `safeLookup` now honours both callback shapes. Every candidate
+> address is still classified before anything is returned and a single unsafe
+> address still rejects the WHOLE target, so SSRF protection is unchanged and
+> still fails closed. Disabling autoselection was used only as diagnostic
+> evidence and deliberately NOT shipped: it would have hidden the contract break
+> and given up IPv4/IPv6 fallback for every crawl.
+>
+> **Why no test caught it.** Every crawler test used `FixtureTransport`, so
+> nothing exercised `safeLookup` against a real socket. Coverage added:
+> `crawler-worker/test/safeLookup.test.ts` pins both callback shapes, multi
+> address handling, IPv4/IPv6, and fail-closed rejection when any address is
+> unsafe (with the unsafe entry placed last, so a filter-and-continue
+> implementation would fail the test). A genuine non-fixture network test lives
+> in `crawler-worker/test/integration/realTransport.test.ts`, run by
+> `npm run test:integration` and kept out of the default offline suite.
+
 Two operator conditions do apply, and both are ordinary configuration rather
 than missing code:
 

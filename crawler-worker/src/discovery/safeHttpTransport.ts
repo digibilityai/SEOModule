@@ -16,24 +16,66 @@ import { FetchError, type FetchOptions, type FetchResult, type Transport } from 
 
 export const CRAWLER_USER_AGENT = "DigibilitySEO-Crawler/0.1 (+discovery; robots-respected)";
 
-type LookupCb = (err: NodeJS.ErrnoException | null, address: string, family: number) => void;
+export interface LookupAddress { address: string; family: number }
+/**
+ * Node calls a custom `lookup` in one of TWO shapes and expects the callback to
+ * answer in the SAME shape:
+ *   options.all !== true  -> callback(err, address, family)
+ *   options.all === true  -> callback(err, [{ address, family }, ...])
+ * Both are covered here.
+ */
+export type LookupCb = {
+  (err: NodeJS.ErrnoException | null, address: string, family: number): void;
+  (err: NodeJS.ErrnoException | null, addresses: LookupAddress[]): void;
+};
+export interface LookupOptions { all?: boolean; family?: number; hints?: number }
 
 // Connection-time DNS validation. Rejects the whole target if ANY resolved
-// address is unsafe; otherwise pins the first (all-validated) address.
-function safeLookup(hostname: string, _options: unknown, callback: LookupCb): void {
-  dns.lookup(hostname, { all: true, verbatim: true }, (err, addresses) => {
-    if (err) return callback(err as NodeJS.ErrnoException, "", 0);
-    if (!addresses.length) return callback(new Error("no DNS answer") as NodeJS.ErrnoException, "", 0);
+// address is unsafe; otherwise returns only all-validated addresses.
+//
+// WHY THE `all` BRANCH EXISTS. Since Node 20, happy-eyeballs address-family
+// autoselection (`net.getDefaultAutoSelectFamily() === true`) calls this lookup
+// with `{ all: true }` and expects an ARRAY back. The previous implementation
+// always replied with the single-address shape, so Node read `address` as
+// undefined and every request died with ERR_INVALID_IP_ADDRESS, surfacing as an
+// unexplained `network_error`. No host could be fetched on Node 20 or later.
+// The fix is to honour the callback contract, NOT to disable autoselection:
+// turning autoselection off would hide the contract break and give up IPv6/IPv4
+// fallback for every crawl.
+//
+// SECURITY IS UNCHANGED AND STILL FAILS CLOSED. Every candidate address is
+// classified before anything is returned, and a single unsafe address rejects
+// the WHOLE target rather than filtering it out, exactly as before. Returning
+// the full validated list is safe precisely because every member passed the
+// same check the single pinned address had to pass: Node may connect to any of
+// them, and all of them are validated, so the no-rebinding-window property is
+// preserved.
+function safeLookup(hostname: string, options: LookupOptions | undefined, callback: LookupCb): void {
+  // Honour a requested address family; 0 or absent means "no preference".
+  const family = options?.family === 4 || options?.family === 6 ? options.family : undefined;
+  const resolveOptions = { all: true as const, verbatim: true, ...(family ? { family } : {}) };
+  dns.lookup(hostname, resolveOptions, (err, addresses) => {
+    if (err) return (callback as (e: NodeJS.ErrnoException | null, a: string, f: number) => void)(err as NodeJS.ErrnoException, "", 0);
+    if (!addresses.length) {
+      return (callback as (e: NodeJS.ErrnoException | null, a: string, f: number) => void)(new Error("no DNS answer") as NodeJS.ErrnoException, "", 0);
+    }
     for (const a of addresses) {
       const d = classifyIp(a.address);
       if (!d.safe) {
-        return callback(new FetchError("ssrf_blocked", `blocked address for ${hostname}: ${d.reason}`) as unknown as NodeJS.ErrnoException, "", 0);
+        return (callback as (e: NodeJS.ErrnoException | null, a: string, f: number) => void)(
+          new FetchError("ssrf_blocked", `blocked address for ${hostname}: ${d.reason}`) as unknown as NodeJS.ErrnoException, "", 0);
       }
     }
+    if (options?.all === true) {
+      const validated: LookupAddress[] = addresses.map((a) => ({ address: a.address, family: a.family }));
+      return (callback as (e: NodeJS.ErrnoException | null, a: LookupAddress[]) => void)(null, validated);
+    }
     const chosen = addresses[0]!;
-    callback(null, chosen.address, chosen.family);
+    (callback as (e: NodeJS.ErrnoException | null, a: string, f: number) => void)(null, chosen.address, chosen.family);
   });
 }
+
+export const __testing = { safeLookup };
 
 interface HopResult { status: number; location?: string; contentType: string; body: Buffer; truncated: boolean; xRobotsTag?: string; }
 
@@ -99,7 +141,12 @@ function oneHop(url: string, opts: FetchOptions): Promise<HopResult> {
     req.on("timeout", () => { req.destroy(new FetchError("timeout", "request timed out", true)); });
     req.on("error", (e) => {
       if (e instanceof FetchError) return reject(e);
-      reject(new FetchError("network_error", "network request failed", true));
+      // Keep the underlying cause in the INTERNAL message. The FetchError code
+      // stays "network_error", so nothing that is stored or shown to a customer
+      // changes; this only stops a failure like ERR_INVALID_IP_ADDRESS from
+      // being reduced to an unexplained "network request failed" in logs.
+      const cause = (e as NodeJS.ErrnoException)?.code;
+      reject(new FetchError("network_error", cause ? `network request failed (${cause})` : "network request failed", true));
     });
     if (opts.signal) {
       if (opts.signal.aborted) { req.destroy(new FetchError("cancelled", "aborted")); }
