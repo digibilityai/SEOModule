@@ -23,18 +23,22 @@
  *     (serveModuleRequest's authorizeCaller, the same SEO_MODULE_API_SECRET
  *     used by every Contract v1 exchange) before this file is ever reached.
  *   provision: browser -> SEO, for the one case A step no SQL function can
- *     safely perform: creating a passwordless auth user. Not machine-secret
- *     gated, because a browser cannot hold that secret. Its safety comes from
- *     requiring a genuinely pending_provisioning intentId, which
- *     seo_brain_link_intent_pending_email only ever returns for a real,
- *     unexpired, still-pending intent, and from never trusting a
- *     caller-supplied email for account creation.
+ *     safely perform: creating a passwordless auth user and handing the browser
+ *     the material to sign in as it. Not machine-secret gated, because a
+ *     browser cannot hold that secret. The browser presents the ORIGINAL
+ *     LAUNCH CODE (never an intent id). Its safety comes from that code
+ *     resolving, via seo_brain_link_intent_pending_by_code, to a real,
+ *     unexpired, pending_provisioning intent, and from never trusting a
+ *     caller-supplied email. Only a single-use magic-link token hash for the
+ *     browser's supabase.auth.verifyOtp leaves this function; no service-role
+ *     credential ever does.
  */
 
 export class LinkIntentError extends Error {
   readonly code:
     | "invalid_request"
     | "not_pending"
+    | "existing_account"
     | "provisioning_failed"
     | "finalize_failed"
     | "module_unavailable";
@@ -51,6 +55,7 @@ export class LinkIntentError extends Error {
 export const LINK_INTENT_ERROR_HTTP_STATUS: Record<LinkIntentError["code"], number> = {
   invalid_request: 400,
   not_pending: 409,
+  existing_account: 409,
   provisioning_failed: 502,
   finalize_failed: 500,
   module_unavailable: 503,
@@ -88,8 +93,11 @@ export interface CreateIntentDbResult {
 
 export interface LinkIntentDataPort {
   createIntent(request: CreateLinkIntentRequest): Promise<CreateIntentDbResult>;
-  /** The one authoritative source for the confirmed email behind a pending_provisioning intent. */
-  pendingProvisioningEmail(intentId: string): Promise<string | null>;
+  /**
+   * The one authoritative source for the intent and confirmed email behind a
+   * pending_provisioning launch code. Null unless genuinely pending.
+   */
+  pendingProvisioning(launchCode: string): Promise<{ intentId: string; email: string } | null>;
   finalizeCaseA(
     intentId: string,
     seoUserId: string,
@@ -97,8 +105,18 @@ export interface LinkIntentDataPort {
 }
 
 export interface AdminAuthPort {
-  /** supabase.auth.admin.createUser({ email, email_confirm: true }), no password set. */
-  createPasswordlessUser(email: string): Promise<{ userId: string } | { error: string }>;
+  /**
+   * supabase.auth.admin.createUser({ email, email_confirm: true }), no password
+   * set. `duplicate: true` marks the email-already-registered race, which must
+   * never lead to touching the pre-existing user.
+   */
+  createPasswordlessUser(
+    email: string,
+  ): Promise<{ userId: string } | { error: string; duplicate?: boolean }>;
+  /** supabase.auth.admin.generateLink({ type: 'magiclink', email }). Sends no email. */
+  generateMagicLinkToken(email: string): Promise<{ tokenHash: string } | { error: string }>;
+  /** Cleanup for an account THIS request just created. Never called for a pre-existing user. */
+  deleteUser(userId: string): Promise<{ ok: true } | { error: string }>;
 }
 
 export interface LinkIntentDeps {
@@ -179,12 +197,14 @@ export async function handleCreateLinkIntent(
 // ---------------------------------------------------------------------------
 
 export interface ProvisionCaseARequest {
-  intentId: string;
+  launchCode: string;
 }
 
+/** Exactly what the browser needs for supabase.auth.verifyOtp({ token_hash, type }). */
 export interface ProvisionCaseAResult {
   intentId: string;
-  seoUserId: string;
+  tokenHash: string;
+  otpType: "magiclink";
 }
 
 export function validateProvisionRequest(rawBody: unknown): ProvisionCaseARequest {
@@ -192,53 +212,92 @@ export function validateProvisionRequest(rawBody: unknown): ProvisionCaseAReques
     throw new LinkIntentError("invalid_request", "Request body must be a JSON object.");
   }
   const body = rawBody as Record<string, unknown>;
-  if (!isNonEmptyString(body.intentId)) {
-    throw new LinkIntentError("invalid_request", "intentId is required.");
+  if (!isNonEmptyString(body.launchCode)) {
+    throw new LinkIntentError("invalid_request", "launchCode is required.");
   }
-  return { intentId: body.intentId.trim() };
+  return { launchCode: body.launchCode.trim() };
 }
 
 /**
- * The email used for account creation is ALWAYS the one SEO already has on
- * file for this intent, read fresh from seo_brain_link_intent_pending_email,
- * never anything the caller supplies. A caller who has learned a real
- * intentId (a random uuid) still cannot bind an email of their own choosing
- * to it.
+ * Order matters, and every failure after account creation removes the account
+ * this request just created, so a failed attempt never leaves a permanent
+ * orphan and never leaves a usable session material behind:
+ *   1. resolve the launch code to the pending intent and its trusted email;
+ *   2. create the passwordless user (a duplicate email is a race with an
+ *      existing account: refuse, and touch nothing, since that user is not ours);
+ *   3. generate the magic-link token (before finalize, so a failure here is
+ *      cleaned up together with everything else);
+ *   4. finalize (module access, actor mapping, intent redeemed);
+ *   5. only now return the token hash.
+ * The intent stays pending_provisioning after a cleaned-up failure, so the same
+ * launch code can be retried until its own short window closes.
  */
 export async function handleProvisionCaseA(
   rawBody: unknown,
   deps: LinkIntentDeps,
 ): Promise<ProvisionCaseAResult> {
-  const { intentId } = validateProvisionRequest(rawBody);
+  const { launchCode } = validateProvisionRequest(rawBody);
 
-  const email = await deps.db.pendingProvisioningEmail(intentId);
-  if (!isNonEmptyString(email)) {
+  const pending = await deps.db.pendingProvisioning(launchCode);
+  if (!pending || !isNonEmptyString(pending.email) || !isNonEmptyString(pending.intentId)) {
     throw new LinkIntentError(
       "not_pending",
-      "This intent is not currently awaiting provisioning.",
-      "pendingProvisioningEmail returned nothing",
+      "This launch code is not currently awaiting provisioning.",
+      "pendingProvisioning returned nothing",
     );
   }
+  const { intentId, email } = pending;
 
   const created = await deps.admin.createPasswordlessUser(email);
   if ("error" in created) {
+    if (created.duplicate) {
+      deps.log?.({ event: "seo_link_intent_provision_duplicate_email", intentId });
+      throw new LinkIntentError(
+        "existing_account",
+        "An SEO account already exists for this email. Sign in to it and confirm the link.",
+        created.error,
+      );
+    }
     deps.log?.({ event: "seo_link_intent_provision_failed", intentId, detail: created.error });
     throw new LinkIntentError("provisioning_failed", "Could not create the SEO account.", created.error);
   }
 
-  const finalized = await deps.db.finalizeCaseA(intentId, created.userId);
-  if (finalized.resolution !== "resolved" || !isNonEmptyString(finalized.seoUserId)) {
+  const userId = created.userId;
+  const cleanup = async (reason: string) => {
+    const removed = await deps.admin.deleteUser(userId);
     deps.log?.({
-      event: "seo_link_intent_finalize_failed",
+      event: "seo_link_intent_provision_cleanup",
       intentId,
-      resolution: finalized.resolution,
+      reason,
+      removed: !("error" in removed),
+      ...("error" in removed ? { detail: removed.error } : {}),
     });
-    throw new LinkIntentError(
-      "finalize_failed",
-      "The SEO account was created but the intent could not be finalized.",
-      finalized.resolution,
-    );
-  }
+  };
 
-  return { intentId, seoUserId: finalized.seoUserId };
+  try {
+    const token = await deps.admin.generateMagicLinkToken(email);
+    if ("error" in token) {
+      await cleanup("generate_link_failed");
+      throw new LinkIntentError("provisioning_failed", "Could not prepare the sign-in for the SEO account.", token.error);
+    }
+
+    const finalized = await deps.db.finalizeCaseA(intentId, userId);
+    if (finalized.resolution !== "resolved" || !isNonEmptyString(finalized.seoUserId)) {
+      deps.log?.({ event: "seo_link_intent_finalize_failed", intentId, resolution: finalized.resolution });
+      await cleanup("finalize_failed");
+      throw new LinkIntentError(
+        "finalize_failed",
+        "The SEO account could not be finalized.",
+        finalized.resolution,
+      );
+    }
+
+    return { intentId, tokenHash: token.tokenHash, otpType: "magiclink" };
+  } catch (error) {
+    if (error instanceof LinkIntentError) throw error;
+    // An unexpected throw (network, RPC transport) between creation and
+    // completion: the same rule applies, the account we created must not linger.
+    await cleanup("unexpected_error");
+    throw error;
+  }
 }

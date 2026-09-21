@@ -4,16 +4,17 @@
 --   RPC surface a Brain-authenticated customer will later use to authorize a
 --   verified SEO website for a real Brain Business.
 -- =============================================================================
--- Additive only. Edits no existing table, policy, RPC or migration, and does
--- not change public.seo_brain_website_links or public.seo_brain_actor_links
--- beyond adding one nullable provenance column to each.
+-- Additive except for ONE deliberate policy replacement (Section 7): it edits no
+-- existing table, RPC or migration, and changes public.seo_brain_website_links
+-- and public.seo_brain_actor_links only by adding one nullable provenance
+-- column to each, plus the customer INSERT policy tightening described below.
 --
 -- WHAT THIS EXISTS TO UNBLOCK.
 -- Digi Brain's businessId is a UUID belonging to a real customer Business.
 -- Today the only way an SEO website ever gets linked to a Business is a human
 -- with direct database access, because public.seo_brain_website_links has no
--- product surface and its INSERT policy requires an authenticated owner/admin
--- session, which this repository currently gives no customer a way to reach
+-- product surface and its (pre-existing) INSERT policy required an authenticated
+-- owner/admin session, which this repository gives no customer a way to reach
 -- for a Brain-originated Business. This migration adds the minimum backend
 -- primitive for that: a single-use, Brain-originated intent that a genuine SEO
 -- session (new or existing) can redeem and then use, within a short consent
@@ -46,15 +47,18 @@
 -- Rate limiting the redemption/provisioning endpoints is a real, deliberately
 -- deferred hardening item, called out in the PR rather than built here.
 --
--- WHY THIS DOES NOT WEAKEN THE EXISTING DIRECT-INSERT RLS POLICY.
--- public.seo_brain_website_links keeps its existing owner/admin INSERT policy
--- unchanged: that remains the administrative/manual linking path (the one the
--- Stage 2B synthetic acceptance link used) and nothing here removes it. This
--- migration adds a SEPARATE, additionally-verified path, seo_brain_link_authorize,
--- for customer-created links: it requires a redeemed, unexpired, unconsumed
--- intent, verified ownership and a host match on top of the same owner/admin
--- role gate. Tightening or removing the plain INSERT path is a bigger,
--- separate decision and is intentionally left for a follow-up.
+-- THE DIRECT-INSERT PATH IS CLOSED FOR CUSTOMERS (PR review B3).
+-- The Stage 2B policy seo_brain_website_links_insert let ANY workspace owner/admin
+-- insert a link straight into public.seo_brain_website_links, which is exactly
+-- the row this feature exists to gate behind Brain-originated intent, consent
+-- and verified ownership. Section 7 below replaces that policy so a direct
+-- INSERT is permitted to a global admin only. Customer owner/admin links are now
+-- created solely by public.seo_brain_link_authorize, a SECURITY DEFINER function
+-- that runs as the table owner and therefore does not depend on this policy.
+-- The operator/bootstrap path (a direct SQL session as the database owner, used
+-- for the Stage 2B synthetic acceptance link) bypasses RLS and is untouched.
+-- Every historical link row is preserved unchanged. Revocation (UPDATE) keeps
+-- its existing owner/admin policy.
 -- =============================================================================
 
 -- ---------------------------------------------------------------------------
@@ -139,6 +143,15 @@ CREATE POLICY seo_brain_link_intents_select
   FOR SELECT
   TO authenticated
   USING (redeemed_seo_user_id = auth.uid() OR public.seo_is_global_admin());
+
+-- Explicit privileges (review N5). Never rely on Supabase's default table
+-- grants: strip everything from PUBLIC, anon and authenticated, then grant back
+-- only SELECT to authenticated (still filtered by the RLS policy above). Every
+-- write happens inside a SECURITY DEFINER function running as the table owner.
+REVOKE ALL ON TABLE public.seo_brain_link_intents FROM PUBLIC;
+REVOKE ALL ON TABLE public.seo_brain_link_intents FROM anon;
+REVOKE ALL ON TABLE public.seo_brain_link_intents FROM authenticated;
+GRANT SELECT ON TABLE public.seo_brain_link_intents TO authenticated;
 
 -- ---------------------------------------------------------------------------
 -- 2. Provenance columns. Both nullable and additive; every existing row keeps
@@ -298,11 +311,11 @@ BEGIN
 
   -- A case A provisioning call is already in flight for this code. This is an
   -- idempotent peek, not a new claim, so the SEO frontend can safely re-poll
-  -- while it waits on account creation without burning anything.
+  -- while it waits on account creation without burning anything. No internal
+  -- identifier is disclosed: the browser proceeds with the launch code itself.
   IF v_intent.status = 'pending_provisioning' THEN
     RETURN jsonb_build_object(
       'outcome',             'case_a_provisioning_required',
-      'intentId',            v_intent.id,
       'brainConfirmedEmail', v_intent.brain_confirmed_email
     );
   END IF;
@@ -334,10 +347,30 @@ BEGIN
 
   -- No mapping. A live SEO session decides case B.
   IF v_caller IS NOT NULL THEN
+    -- Eligibility comes BEFORE any prompt or claim (review N4). An anonymous
+    -- Supabase session has a non-null auth.uid() but is not a genuine SEO
+    -- customer, and a user without active SEO module access cannot use SEO at
+    -- all. Neither is asked to confirm, neither burns the code, and neither
+    -- can ever reach the actor-link insert below.
+    IF coalesce((auth.jwt() ->> 'is_anonymous')::boolean, false) THEN
+      RETURN jsonb_build_object('outcome', 'anonymous_session_not_eligible');
+    END IF;
+    IF NOT public.has_seo_module_access(v_caller) THEN
+      RETURN jsonb_build_object('outcome', 'seo_access_required');
+    END IF;
+
     IF NOT p_confirm THEN
       -- Not yet a decision: nothing is claimed, so the same code can still be
-      -- presented again once the customer has explicitly confirmed.
-      RETURN jsonb_build_object('outcome', 'confirmation_required', 'intentId', v_intent.id);
+      -- presented again once the customer has explicitly confirmed. The
+      -- response carries exactly the safe presentation context the UI needs to
+      -- tell the customer what is being connected (review B4), and no internal
+      -- identifier.
+      RETURN jsonb_build_object(
+        'outcome',              'confirmation_required',
+        'brainConfirmedEmail',  v_intent.brain_confirmed_email,
+        'businessDisplayName',  v_intent.business_display_name,
+        'normalizedHost',       v_intent.normalized_host
+      );
     END IF;
 
     SELECT EXISTS (
@@ -354,7 +387,7 @@ BEGIN
       IF NOT FOUND THEN
         RETURN jsonb_build_object('outcome', 'invalid_or_expired_code');
       END IF;
-      RETURN jsonb_build_object('outcome', 'case_b_conflict', 'intentId', v_claimed.id);
+      RETURN jsonb_build_object('outcome', 'case_b_conflict');
     END IF;
 
     UPDATE public.seo_brain_link_intents
@@ -402,7 +435,7 @@ BEGIN
     IF NOT FOUND THEN
       RETURN jsonb_build_object('outcome', 'invalid_or_expired_code');
     END IF;
-    RETURN jsonb_build_object('outcome', 'existing_account_verification_required', 'intentId', v_claimed.id);
+    RETURN jsonb_build_object('outcome', 'existing_account_verification_required');
   END IF;
 
   UPDATE public.seo_brain_link_intents
@@ -416,7 +449,6 @@ BEGIN
 
   RETURN jsonb_build_object(
     'outcome',             'case_a_provisioning_required',
-    'intentId',            v_claimed.id,
     'brainConfirmedEmail', v_claimed.brain_confirmed_email
   );
 END;
@@ -427,33 +459,35 @@ GRANT EXECUTE ON FUNCTION public.seo_brain_link_intent_redeem(text, boolean) TO 
 GRANT EXECUTE ON FUNCTION public.seo_brain_link_intent_redeem(text, boolean) TO authenticated;
 
 -- ---------------------------------------------------------------------------
--- 5a. Trusted email lookup for provisioning. service_role only. The edge
---     function calls this BEFORE calling the Admin API, so account creation
---     always uses SEO's own stored, Brain-confirmed email rather than
---     whatever a caller echoes back. Without this, a caller who obtained one
---     intentId (a random uuid, so this is already a high bar) could pair it
---     with an email of their own choosing and hijack a stranger's pending
---     provisioning. Returns NULL for anything that is not genuinely, still
---     pending, so the edge function has one place to fail closed.
+-- 5a. Trusted lookup for provisioning, keyed on the ORIGINAL LAUNCH CODE (review
+--     B2). service_role only. The browser presents the launch code to the edge
+--     function, never an intent id, and the edge function resolves it here to
+--     the intent id and the Brain-confirmed email it must create the account
+--     for, so account creation always uses SEO's own stored email and never
+--     anything a caller echoes back. Returns NULL for anything that is not
+--     genuinely, still pending_provisioning and unexpired, so the edge function
+--     has exactly one place to fail closed. The code has already been claimed
+--     for case A by seo_brain_link_intent_redeem; this function claims nothing.
 -- ---------------------------------------------------------------------------
-CREATE OR REPLACE FUNCTION public.seo_brain_link_intent_pending_email(p_intent_id uuid)
-RETURNS text
+CREATE OR REPLACE FUNCTION public.seo_brain_link_intent_pending_by_code(p_launch_code text)
+RETURNS jsonb
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, extensions
 AS $$
-  SELECT i.brain_confirmed_email
+  SELECT jsonb_build_object('intentId', i.id, 'brainConfirmedEmail', i.brain_confirmed_email)
   FROM public.seo_brain_link_intents i
-  WHERE i.id = p_intent_id
+  WHERE btrim(coalesce(p_launch_code, '')) <> ''
+    AND i.launch_code_hash = encode(digest(p_launch_code, 'sha256'), 'hex')
     AND i.status = 'pending_provisioning'
     AND now() <= i.redemption_expires_at;
 $$;
 
-REVOKE ALL ON FUNCTION public.seo_brain_link_intent_pending_email(uuid) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.seo_brain_link_intent_pending_email(uuid) FROM anon;
-REVOKE ALL ON FUNCTION public.seo_brain_link_intent_pending_email(uuid) FROM authenticated;
-GRANT EXECUTE ON FUNCTION public.seo_brain_link_intent_pending_email(uuid) TO service_role;
+REVOKE ALL ON FUNCTION public.seo_brain_link_intent_pending_by_code(text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.seo_brain_link_intent_pending_by_code(text) FROM anon;
+REVOKE ALL ON FUNCTION public.seo_brain_link_intent_pending_by_code(text) FROM authenticated;
+GRANT EXECUTE ON FUNCTION public.seo_brain_link_intent_pending_by_code(text) TO service_role;
 
 -- ---------------------------------------------------------------------------
 -- 5. finalize_case_a. service_role only. Called by the edge function
@@ -461,9 +495,11 @@ GRANT EXECUTE ON FUNCTION public.seo_brain_link_intent_pending_email(uuid) TO se
 --    official Supabase Admin API for a case A outcome, which is a step no SQL
 --    function can safely perform itself. p_seo_user_id must be the user the
 --    edge function just created for the EXACT email
---    seo_brain_link_intent_pending_email just returned for this same
---    p_intent_id; finalize itself re-checks pending_provisioning and expiry,
---    which is what actually prevents a stale or reused intentId from binding.
+--    seo_brain_link_intent_pending_by_code returned for this intent. finalize
+--    no longer takes that on trust (review N8): it re-checks pending_provisioning
+--    and expiry, verifies the supplied user's own email equals the intent's
+--    Brain-confirmed email, and refuses rather than reactivating module access
+--    that was deliberately revoked.
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.seo_brain_link_intent_finalize_case_a(
   p_intent_id uuid,
@@ -477,6 +513,8 @@ AS $$
 DECLARE
   v_intent   record;
   v_conflict boolean;
+  v_user_email text;
+  v_access_active boolean;
 BEGIN
   IF p_intent_id IS NULL THEN
     RETURN jsonb_build_object('resolution', 'invalid_request', 'detail', 'p_intent_id is required');
@@ -484,7 +522,10 @@ BEGIN
   IF p_seo_user_id IS NULL THEN
     RETURN jsonb_build_object('resolution', 'invalid_request', 'detail', 'p_seo_user_id is required');
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM auth.users u WHERE u.id = p_seo_user_id) THEN
+  SELECT lower(btrim(u.email)) INTO v_user_email
+  FROM auth.users u
+  WHERE u.id = p_seo_user_id;
+  IF NOT FOUND THEN
     RETURN jsonb_build_object('resolution', 'invalid_request', 'detail', 'p_seo_user_id does not exist');
   END IF;
 
@@ -495,6 +536,14 @@ BEGIN
 
   IF NOT FOUND OR v_intent.status <> 'pending_provisioning' OR now() > v_intent.redemption_expires_at THEN
     RETURN jsonb_build_object('resolution', 'invalid_or_expired_intent');
+  END IF;
+
+  -- Identity check (review N8): the supplied user must be the account for the
+  -- Brain-confirmed email, compared on the same lower(btrim()) normalization
+  -- the intent stores. An arbitrary existing SEO user is refused, and nothing
+  -- is claimed, so the legitimate provisioning can still complete.
+  IF v_user_email IS DISTINCT FROM lower(btrim(v_intent.brain_confirmed_email)) THEN
+    RETURN jsonb_build_object('resolution', 'identity_mismatch');
   END IF;
 
   -- Race safety: refuse rather than double-map if something else has claimed
@@ -510,9 +559,20 @@ BEGIN
     RETURN jsonb_build_object('resolution', 'actor_conflict');
   END IF;
 
+  -- Grant the minimum module access, but never silently reactivate a row that
+  -- was deliberately deactivated (review N8): DO NOTHING on conflict, then
+  -- fail closed unless the row that exists is active. Private-beta
+  -- provisioning does not require overriding a revocation.
   INSERT INTO public.user_module_access (user_id, module_name, is_active, granted_by)
   VALUES (p_seo_user_id, 'seo', true, p_seo_user_id)
-  ON CONFLICT (user_id, module_name) DO UPDATE SET is_active = true;
+  ON CONFLICT (user_id, module_name) DO NOTHING;
+
+  SELECT a.is_active INTO v_access_active
+  FROM public.user_module_access a
+  WHERE a.user_id = p_seo_user_id AND a.module_name = 'seo';
+  IF NOT coalesce(v_access_active, false) THEN
+    RETURN jsonb_build_object('resolution', 'module_access_revoked');
+  END IF;
 
   INSERT INTO public.seo_brain_actor_links (brain_actor_id, seo_user_id, linked_by, link_method)
   VALUES (v_intent.brain_actor_id, p_seo_user_id, p_seo_user_id, 'brain_intent_new');
@@ -552,7 +612,7 @@ DECLARE
   v_caller     uuid := auth.uid();
   v_intent     record;
   v_website    record;
-  v_ownership  text;
+  v_ownership  record;
   v_website_host text;
   v_new_id     uuid;
 BEGIN
@@ -576,6 +636,18 @@ BEGIN
   END IF;
   IF v_intent.consent_expires_at IS NULL OR now() > v_intent.consent_expires_at THEN
     RETURN jsonb_build_object('resolution', 'intent_expired');
+  END IF;
+
+  -- Re-check the Brain actor to SEO user mapping at spend time (review N3). A
+  -- mapping revoked after redemption, or one that no longer maps this actor to
+  -- this authenticated user, must stop authorization.
+  IF NOT EXISTS (
+    SELECT 1 FROM public.seo_brain_actor_links l
+    WHERE l.brain_actor_id = v_intent.brain_actor_id
+      AND l.seo_user_id = v_caller
+      AND l.link_status = 'active'
+  ) THEN
+    RETURN jsonb_build_object('resolution', 'actor_mapping_inactive');
   END IF;
 
   IF NOT public.has_seo_module_access(v_caller) THEN
@@ -617,11 +689,23 @@ BEGIN
     RETURN jsonb_build_object('resolution', 'host_mismatch');
   END IF;
 
-  SELECT v.status INTO v_ownership
+  -- Ownership must be verified for THIS host (review B1). status = 'verified'
+  -- alone is not enough: a website whose URL was changed after verification
+  -- still carries the old row, and it proves ownership of the OLD host. The
+  -- stored evidence (verification_host and the website_url snapshot taken when
+  -- the challenge was issued) must each still normalize to BOTH the website's
+  -- current host and the intent's host. Historical evidence is only read.
+  SELECT v.status, v.verification_host, v.website_url INTO v_ownership
   FROM public.seo_ownership_verifications v
   WHERE v.website_id = p_website_id AND v.method = 'dns_txt';
 
-  IF coalesce(v_ownership, 'not_started') <> 'verified' THEN
+  IF NOT FOUND
+     OR v_ownership.status <> 'verified'
+     OR public.seo_brain_normalize_host(v_ownership.verification_host) IS DISTINCT FROM v_website_host
+     OR public.seo_brain_normalize_host(v_ownership.verification_host) IS DISTINCT FROM v_intent.normalized_host
+     OR public.seo_brain_normalize_host(v_ownership.website_url) IS DISTINCT FROM v_website_host
+     OR public.seo_brain_normalize_host(v_ownership.website_url) IS DISTINCT FROM v_intent.normalized_host
+  THEN
     RETURN jsonb_build_object('resolution', 'ownership_not_verified');
   END IF;
 
@@ -671,3 +755,20 @@ $$;
 REVOKE ALL ON FUNCTION public.seo_brain_link_authorize(uuid, uuid) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.seo_brain_link_authorize(uuid, uuid) FROM anon;
 GRANT EXECUTE ON FUNCTION public.seo_brain_link_authorize(uuid, uuid) TO authenticated;
+
+-- ---------------------------------------------------------------------------
+-- 7. Close the customer direct-INSERT bypass on seo_brain_website_links
+--    (review B3). The Stage 2B policy allowed any workspace owner/admin to
+--    insert a link, which is the exact row D-026 consumes, without intent,
+--    consent or verified ownership. Replace it so only a global admin may
+--    insert directly. seo_brain_link_authorize is SECURITY DEFINER, runs as the
+--    table owner and does not depend on this policy; a direct SQL operator
+--    session (the Stage 2B bootstrap) bypasses RLS entirely. Existing rows are
+--    untouched, and the SELECT and UPDATE (revoke) policies are unchanged.
+-- ---------------------------------------------------------------------------
+DROP POLICY IF EXISTS seo_brain_website_links_insert ON public.seo_brain_website_links;
+CREATE POLICY seo_brain_website_links_insert
+  ON public.seo_brain_website_links
+  FOR INSERT
+  TO authenticated
+  WITH CHECK (public.seo_is_global_admin());

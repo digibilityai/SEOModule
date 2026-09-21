@@ -11,11 +11,44 @@
  *
  * link-intent/provision is NOT secret-gated. A browser cannot hold that
  * secret. Its safety is entirely in handleProvisionCaseA: it only ever acts on
- * an intentId that is genuinely, currently pending_provisioning, and it never
- * trusts a caller-supplied email.
+ * a launch code that genuinely, currently resolves to a pending_provisioning
+ * intent, and it never trusts a caller-supplied email.
+ *
+ * CORS exists ONLY for link-intent/provision, because the SEO browser calls it
+ * directly. It uses an explicit, configured allow-list of SEO origins: never
+ * "*", never a reflected arbitrary Origin, and no CORS headers at all on
+ * link-intent/create, which is a server-to-server path a browser never needs.
  */
 
 import { authorizeCaller, type TransportConfig } from "./http.ts";
+
+export interface LinkIntentTransportConfig extends TransportConfig {
+  /** Exact SEO frontend origins (scheme + host + port) that may call provision from a browser. */
+  allowedOrigins: readonly string[];
+}
+
+/** Parses SEO_LINK_INTENT_ALLOWED_ORIGINS: comma separated exact origins. "*" is discarded. */
+export function parseAllowedOrigins(raw: string | undefined | null): string[] {
+  return (raw ?? "")
+    .split(",")
+    .map((origin) => origin.trim().replace(/\/+$/, ""))
+    .filter((origin) => origin.length > 0 && origin !== "*");
+}
+
+function originAllowed(request: Request, config: LinkIntentTransportConfig): string | null {
+  const origin = request.headers.get("origin");
+  return origin !== null && config.allowedOrigins.includes(origin) ? origin : null;
+}
+
+function corsHeaders(origin: string): Record<string, string> {
+  return {
+    "access-control-allow-origin": origin,
+    "access-control-allow-methods": "POST, OPTIONS",
+    "access-control-allow-headers": "authorization, apikey, content-type, x-client-info",
+    "access-control-max-age": "600",
+    vary: "Origin",
+  };
+}
 import { LinkIntentError, LINK_INTENT_ERROR_HTTP_STATUS, type LinkIntentDeps } from "./link-intent.ts";
 import { handleCreateLinkIntent, handleProvisionCaseA } from "./link-intent.ts";
 
@@ -46,19 +79,38 @@ function errorBody(code: string, message: string): string {
   return JSON.stringify({ error: { code, message } });
 }
 
-function toErrorResponse(error: LinkIntentError): Response {
+function toErrorResponse(error: LinkIntentError, extra: Record<string, string> = {}): Response {
   return new Response(errorBody(error.code, error.message), {
     status: LINK_INTENT_ERROR_HTTP_STATUS[error.code],
-    headers: JSON_HEADERS,
+    headers: { ...JSON_HEADERS, ...extra },
   });
 }
 
 export async function serveLinkIntentRequest(
   request: Request,
   path: LinkIntentPath,
-  config: TransportConfig,
+  config: LinkIntentTransportConfig,
   deps: LinkIntentDeps,
 ): Promise<Response> {
+  // Only provision ever answers a browser. A preflight or a request from an
+  // origin outside the allow-list is refused outright, with no CORS headers.
+  let cors: Record<string, string> = {};
+  if (path === "provision") {
+    const requestOrigin = request.headers.get("origin");
+    const allowed = originAllowed(request, config);
+    if (requestOrigin !== null && allowed === null) {
+      deps.log?.({ event: "seo_link_intent_origin_refused", path });
+      return new Response(errorBody("origin_not_allowed", "This origin is not allowed."), {
+        status: 403,
+        headers: JSON_HEADERS,
+      });
+    }
+    if (allowed !== null) cors = corsHeaders(allowed);
+    if (request.method === "OPTIONS" && allowed !== null) {
+      return new Response(null, { status: 204, headers: cors });
+    }
+  }
+
   try {
     if (request.method !== "POST") {
       throw new LinkIntentError("invalid_request", "Only POST is supported.");
@@ -79,11 +131,11 @@ export async function serveLinkIntentRequest(
     const result =
       path === "create" ? await handleCreateLinkIntent(body, deps) : await handleProvisionCaseA(body, deps);
 
-    return new Response(JSON.stringify(result), { status: 200, headers: JSON_HEADERS });
+    return new Response(JSON.stringify(result), { status: 200, headers: { ...JSON_HEADERS, ...cors } });
   } catch (error) {
     if (error instanceof LinkIntentError) {
       deps.log?.({ event: "seo_link_intent_error", path, code: error.code, internalReason: error.internalReason ?? null });
-      return toErrorResponse(error);
+      return toErrorResponse(error, cors);
     }
     // authorizeCaller throws SeoModuleContractError, not LinkIntentError, on a
     // bad or missing secret. Its shape is close enough (code + message) that
@@ -93,7 +145,7 @@ export async function serveLinkIntentRequest(
       deps.log?.({ event: "seo_link_intent_unauthorized", path, code: contractError.code });
       return new Response(errorBody(contractError.code, contractError.message), {
         status: contractError.code === "unauthorized" ? 403 : 503,
-        headers: JSON_HEADERS,
+        headers: { ...JSON_HEADERS, ...cors },
       });
     }
     deps.log?.({
@@ -103,6 +155,7 @@ export async function serveLinkIntentRequest(
     });
     return toErrorResponse(
       new LinkIntentError("module_unavailable", "The SEO module could not complete this request."),
+      cors,
     );
   }
 }

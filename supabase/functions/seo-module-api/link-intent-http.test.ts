@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { linkIntentPathFromUrl, serveLinkIntentRequest } from "./link-intent-http.ts";
+import { linkIntentPathFromUrl, parseAllowedOrigins, serveLinkIntentRequest } from "./link-intent-http.ts";
 import type { AdminAuthPort, LinkIntentDataPort, LinkIntentDeps } from "./link-intent.ts";
 
 const SECRET = "a".repeat(48);
-const config = { moduleApiSecret: SECRET };
+const ORIGIN = "https://seo.digibility.example";
+const config = { moduleApiSecret: SECRET, allowedOrigins: [ORIGIN] };
 const BASE = "https://seo.example/functions/v1/seo-module-api";
 
 function post(path: string, body: unknown, headers: Record<string, string> = {}): Request {
@@ -25,8 +26,8 @@ function deps(): LinkIntentDeps & { log: (event: Record<string, unknown>) => voi
         redemptionExpiresAt: "2026-01-01T00:02:00.000Z",
       };
     },
-    async pendingProvisioningEmail() {
-      return "customer@example.com";
+    async pendingProvisioning() {
+      return { intentId: "intent-1", email: "customer@example.com" };
     },
     async finalizeCaseA(intentId, seoUserId) {
       return { resolution: "resolved", intentId, seoUserId };
@@ -35,6 +36,12 @@ function deps(): LinkIntentDeps & { log: (event: Record<string, unknown>) => voi
   const admin: AdminAuthPort = {
     async createPasswordlessUser() {
       return { userId: "new-user-1" };
+    },
+    async generateMagicLinkToken() {
+      return { tokenHash: "hashed-token-1" };
+    },
+    async deleteUser() {
+      return { ok: true };
     },
   };
   return { db, admin, log: (event) => events.push(event), events };
@@ -84,7 +91,7 @@ describe("link-intent/create machine credential", () => {
     const response = await serveLinkIntentRequest(
       post("create", {}, { authorization: "Bearer whatever" }),
       "create",
-      { moduleApiSecret: "" },
+      { moduleApiSecret: "", allowedOrigins: [] },
       deps(),
     );
     expect(response.status).toBe(503);
@@ -93,9 +100,13 @@ describe("link-intent/create machine credential", () => {
 
 describe("link-intent/provision", () => {
   it("is reachable with no machine secret at all, because a browser cannot hold one", async () => {
-    const response = await serveLinkIntentRequest(post("provision", { intentId: "intent-1" }), "provision", config, deps());
+    const response = await serveLinkIntentRequest(post("provision", { launchCode: "code-1" }), "provision", config, deps());
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ intentId: "intent-1", seoUserId: "new-user-1" });
+    await expect(response.json()).resolves.toEqual({
+      intentId: "intent-1",
+      tokenHash: "hashed-token-1",
+      otpType: "magiclink",
+    });
   });
 
   it("refuses a non-POST method", async () => {
@@ -115,5 +126,69 @@ describe("link-intent/provision", () => {
     await expect(response.json()).resolves.toEqual({
       error: { code: "invalid_request", message: expect.any(String) },
     });
+  });
+});
+
+describe("link-intent/provision CORS", () => {
+  it("allows a configured SEO origin: preflight and POST both echo exactly that origin", async () => {
+    const preflight = await serveLinkIntentRequest(
+      new Request(`${BASE}/link-intent/provision`, { method: "OPTIONS", headers: { origin: ORIGIN } }),
+      "provision",
+      config,
+      deps(),
+    );
+    expect(preflight.status).toBe(204);
+    expect(preflight.headers.get("access-control-allow-origin")).toBe(ORIGIN);
+    expect(preflight.headers.get("access-control-allow-methods")).toBe("POST, OPTIONS");
+    expect(preflight.headers.get("vary")).toBe("Origin");
+
+    const response = await serveLinkIntentRequest(
+      post("provision", { launchCode: "code-1" }, { origin: ORIGIN }),
+      "provision",
+      config,
+      deps(),
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("access-control-allow-origin")).toBe(ORIGIN);
+  });
+
+  it("refuses an origin outside the allow-list, for preflight and POST, with no CORS headers", async () => {
+    const dependencies = deps();
+    for (const request of [
+      new Request(`${BASE}/link-intent/provision`, { method: "OPTIONS", headers: { origin: "https://evil.example" } }),
+      post("provision", { launchCode: "code-1" }, { origin: "https://evil.example" }),
+    ]) {
+      const response = await serveLinkIntentRequest(request, "provision", config, dependencies);
+      expect(response.status).toBe(403);
+      expect(response.headers.get("access-control-allow-origin")).toBeNull();
+    }
+  });
+
+  it("refuses every browser origin when no origin is configured", async () => {
+    const response = await serveLinkIntentRequest(
+      post("provision", { launchCode: "code-1" }, { origin: ORIGIN }),
+      "provision",
+      { moduleApiSecret: SECRET, allowedOrigins: [] },
+      deps(),
+    );
+    expect(response.status).toBe(403);
+  });
+
+  it("never sends CORS headers on the machine-only create path", async () => {
+    const response = await serveLinkIntentRequest(
+      post("create", {}, { origin: ORIGIN, authorization: `Bearer ${SECRET}` }),
+      "create",
+      config,
+      deps(),
+    );
+    expect(response.headers.get("access-control-allow-origin")).toBeNull();
+  });
+
+  it("parseAllowedOrigins drops a wildcard and trailing slashes", () => {
+    expect(parseAllowedOrigins(" https://a.example/ , *, ,https://b.example")).toEqual([
+      "https://a.example",
+      "https://b.example",
+    ]);
+    expect(parseAllowedOrigins(undefined)).toEqual([]);
   });
 });

@@ -3,7 +3,7 @@
 --   public.seo_brain_link_intents
 --   public.seo_brain_create_link_intent
 --   public.seo_brain_link_intent_redeem
---   public.seo_brain_link_intent_pending_email
+--   public.seo_brain_link_intent_pending_by_code
 --   public.seo_brain_link_intent_finalize_case_a
 --   public.seo_brain_link_authorize
 -- =============================================================================
@@ -13,8 +13,31 @@
 -- RUN ONLY on a local/fresh project or Digi_SEO_Test, AFTER
 -- 20260921120000_seo_brain_link_intents.sql and everything it depends on
 -- (the five 20260920 Stage 2B migrations). NOT RUN as part of this PR; see the
--- PR description. Dry-run verified, inside BEGIN/ROLLBACK, against
--- Digi_SEO_Test's actual current state during PR-1 development.
+-- PR description.
+--
+-- SAFE EXECUTION (required). This file is NOT transactional by itself: run with
+-- plain `psql -f` it autocommits statement by statement. Always wrap it so
+-- nothing can persist, whether it passes or fails:
+--
+--   ( echo 'BEGIN;'; cat supabase/test/seo_brain_link_intents_verification.sql; echo 'ROLLBACK;' ) \
+--     | psql "$TEST_DB_URL" -v ON_ERROR_STOP=1
+--
+-- Against a project where migration 20260921120000 is still UNAPPLIED (the
+-- state of PR #3), put the migration inside the same transaction so the whole
+-- dry-run is discarded together:
+--
+--   ( echo 'BEGIN;'
+--     cat supabase/migrations/20260921120000_seo_brain_link_intents.sql
+--     cat supabase/test/seo_brain_link_intents_verification.sql
+--     echo 'ROLLBACK;' ) | psql "$TEST_DB_URL" -v ON_ERROR_STOP=1
+--
+-- Even without the wrapper the teardown at the end restores every fixture it
+-- touched, including the shared b1.nomem module-access row, to the exact state
+-- snapshotted at the start (existed or not, and is_active / granted_by /
+-- granted_at when it did). The wrapper is the guarantee; the teardown is the
+-- second line. A final assertion compares every non-fixture actor link and
+-- website link (the Stage 2B evidence) byte for byte against a snapshot taken
+-- before any mutation.
 --
 -- Self-contained and self-seeding, in the same style as
 -- seo_brain_module_boundary_verification.sql: creates its own disposable
@@ -30,8 +53,8 @@
 -- therefore reads b1.owner's EXISTING mapping rather than creating one, and
 -- every test that needs a genuinely UNMAPPED user uses b1.nomem, which carries
 -- no mapping on Digi_SEO_Test today. Explicit teardown at the end removes
--- every row this script itself created, including the module-access grant and
--- actor link it places on b1.nomem, so it leaves zero residue and disturbs no
+-- every row this script itself created and RESTORES the b1.nomem module-access
+-- row to its snapshotted state, so it leaves zero residue and disturbs no
 -- pre-existing row.
 --
 -- Proves:
@@ -40,37 +63,47 @@
 --   * redeem: an unknown code is invalid_or_expired_code; a code cannot be
 --     redeemed twice; an expired code is refused; case D resolves an
 --     existing active actor mapping unconditionally, ahead of any session;
---     case B requires a live session AND explicit confirmation before it
---     creates a mapping, refuses a session already mapped to a different
---     actor, and creates the mapping with a genuine linked_by; case C
+--     case B requires a genuine (non-anonymous) session with SEO module
+--     access AND explicit confirmation before it creates a mapping, shows the
+--     Brain email, Business name and host (and no internal id) to confirm,
+--     refuses a session already mapped to a different actor, and creates the
+--     mapping with a genuine linked_by; case C
 --     (existing auth.users email, no session, no mapping) refuses safely and
 --     creates nothing, and burns its code even though nothing was bound; case
 --     A (new email) reaches pending_provisioning and nothing else, and
---     seo_brain_link_intent_pending_email discloses the email ONLY while a
+--     seo_brain_link_intent_pending_by_code discloses the intent only while a
 --     code is genuinely pending and nothing once it is not;
---   * finalize_case_a: grants module access, creates a link_method =
---     'brain_intent_new' actor mapping, and marks the intent redeemed;
---     refuses a stale or already-resolved intentId; refuses on an actor
---     conflict;
+--   * finalize_case_a: refuses a wrong user and an email mismatch, refuses
+--     (rather than reactivating) deliberately revoked module access, grants
+--     module access, creates a link_method = 'brain_intent_new' actor mapping,
+--     and marks the intent redeemed; refuses a stale or already-resolved
+--     intent; refuses on an actor conflict;
 --   * authorize: the full precondition chain (redeemed, matching user,
 --     within the consent window, module access, owner/admin role, active
---     website, host match, verified ownership, no conflicting link),
+--     website, host match, verified ownership FOR THE CURRENT HOST (a website
+--     whose URL changed after verification is refused), actor mapping still
+--     active, no conflicting link),
 --     genuine linked_by = auth.uid(), source_intent_id recorded, the intent
 --     marked link_created, and that it cannot be spent twice; an unrelated
 --     workspace's website answers exactly like a nonexistent one;
---   * grants: create_intent, pending_email and finalize_case_a are
+--   * grants: create_intent, pending_by_code and finalize_case_a are
 --     service_role only; redeem is anon and authenticated; authorize is
 --     authenticated only;
---   * RLS: seo_brain_link_intents has no INSERT/UPDATE grant to anon or
---     authenticated at all; a redeemed user (or a global admin) may SELECT
---     their own row and nobody else's.
+--   * table privileges: seo_brain_link_intents grants nothing to PUBLIC or
+--     anon, and only SELECT to authenticated; direct INSERT/UPDATE/DELETE are
+--     refused; a redeemed user (or a global admin) may SELECT their own row and
+--     nobody else's;
+--   * direct link bypass (B3): an owner/admin cannot INSERT a
+--     seo_brain_website_links row directly; the authorize path still works; an
+--     operator session (the Stage 2B bootstrap) still can.
 --
 -- NOT covered here, and why: the ACTUAL creation of a passwordless auth user
--- in case A is performed by the Edge Function through
--- supabase.auth.admin.createUser, which no SQL script may safely replicate;
--- see link-intent.test.ts for that step's own coverage (with a mocked Admin
--- API), and Section 8 below for finalize_case_a exercised against a stand-in
--- id in auth.users that already exists. Likewise, this script exercises case
+-- in case A and the magic-link token are performed by the Edge Function through
+-- supabase.auth.admin.createUser / generateLink, which no SQL script may safely
+-- replicate; see link-intent.test.ts for that step's own coverage (with a
+-- mocked Admin API), and Section 7 below for finalize_case_a exercised against
+-- b1.nomem standing in for the just-created user (the intent's email is set to
+-- that user's email, exactly the state the edge function creates). Likewise, this script exercises case
 -- B's "already mapped, refused" and "confirmation required" sub-paths against
 -- real data, but not a from-scratch case B SUCCESS against a truly unmapped
 -- live session distinct from the one case A/finalize_case_a also uses,
@@ -102,6 +135,9 @@ BEGIN
     END IF;
   END LOOP;
 
+  IF (SELECT lower(btrim(email)) FROM auth.users WHERE id = current_setting('b1.nomem')::uuid) IS NULL THEN
+    RAISE EXCEPTION 'PREREQUISITE FAILED: b1.nomem has no email; finalize_case_a identity checks need one.';
+  END IF;
   IF to_regclass('public.seo_brain_link_intents') IS NULL THEN
     RAISE EXCEPTION 'PREREQUISITE FAILED: 20260921120000_seo_brain_link_intents.sql is not applied.';
   END IF;
@@ -159,6 +195,39 @@ VALUES
    'https://linkintent-verify-a.test', 'linkintent-verify-a.test', 'dns_txt', 'verified',
    'digibility-site-verification=linkintentverifytoken', now(), now());
 -- Fixture B deliberately has NO ownership row: status resolves to 'not_started'.
+
+-- ---------------------------------------------------------------------------
+-- SNAPSHOTS, taken before this script alters anything it does not own (N9).
+--   * the exact state of b1.nomem's 'seo' module-access row (or its absence),
+--     restored verbatim in teardown;
+--   * a digest of every actor link and website link this script does NOT own,
+--     i.e. the Stage 2B historical evidence, asserted unchanged at the end.
+-- ---------------------------------------------------------------------------
+DO $snap$
+DECLARE
+  r record;
+BEGIN
+  SELECT * INTO r FROM public.user_module_access
+  WHERE user_id = current_setting('b1.nomem')::uuid AND module_name = 'seo';
+  IF FOUND THEN
+    PERFORM set_config('li.acc_existed',    'true', false);
+    PERFORM set_config('li.acc_active',     r.is_active::text, false);
+    PERFORM set_config('li.acc_granted_by', coalesce(r.granted_by::text, ''), false);
+    PERFORM set_config('li.acc_granted_at', r.granted_at::text, false);
+  ELSE
+    PERFORM set_config('li.acc_existed', 'false', false);
+  END IF;
+
+  PERFORM set_config('li.evidence_digest', (
+    SELECT md5(coalesce(string_agg(x, '|' ORDER BY x), '')) FROM (
+      SELECT 'a:' || to_jsonb(l)::text AS x FROM public.seo_brain_actor_links l
+       WHERE l.brain_actor_id NOT LIKE 'LINKINTENT-VERIFY-%'
+      UNION ALL
+      SELECT 'w:' || to_jsonb(w)::text FROM public.seo_brain_website_links w
+       WHERE w.business_id NOT LIKE 'LINKINTENT-VERIFY-%'
+    ) t
+  ), false);
+END $snap$;
 
 -- ---------------------------------------------------------------------------
 -- 1. create_intent: validation.
@@ -271,45 +340,157 @@ BEGIN
 END $$;
 
 -- ---------------------------------------------------------------------------
--- 4. Case B: a live SEO session, no existing mapping. Requires confirm=true,
---    and refuses a session already mapped to a different actor. Uses
---    b1.nomem, the one shared fixture confirmed free of any mapping above; it
---    is left mapped to 'LINKINTENT-VERIFY-actor-b' at the end of this
---    section, and freed again immediately afterward so Section 6/8 can reuse
---    it from a clean slate.
+-- 4. Case B: a genuine live SEO session with module access, no existing
+--    mapping. Requires confirm=true, is shown safe presentation context first,
+--    refuses an anonymous session and a session with no module access, and
+--    refuses a session already mapped to a different actor. Uses b1.nomem, the
+--    one shared fixture confirmed free of any mapping above; its module-access
+--    row is (re)shaped here from the snapshot taken earlier and restored in
+--    teardown. It is left mapped to 'LINKINTENT-VERIFY-actor-b' at the end of
+--    the confirmed test, and freed again so Sections 6 to 8 start clean.
 -- ---------------------------------------------------------------------------
 DO $$
 DECLARE
   created jsonb;
-  r jsonb;
 BEGIN
   created := public.seo_brain_create_link_intent(
-    'LINKINTENT-VERIFY-actor-b', 'b-case@example.test', 'LINKINTENT-VERIFY-biz-b', 'linkintent-verify-a.test');
+    'LINKINTENT-VERIFY-actor-b', 'b-case@example.test', 'LINKINTENT-VERIFY-biz-b',
+    'linkintent-verify-a.test', 'Fixture Business B');
   PERFORM set_config('li.code_b', created->>'launchCode', false);
+END $$;
 
+-- 4a. Anonymous Supabase session (non-null auth.uid(), is_anonymous claim): refused,
+--     nothing claimed, no mapping.
+INSERT INTO public.user_module_access (user_id, module_name, is_active)
+VALUES (current_setting('b1.nomem')::uuid, 'seo', true)
+ON CONFLICT (user_id, module_name) DO UPDATE SET is_active = true;
+
+DO $$
+DECLARE
+  r jsonb;
+BEGIN
+  PERFORM set_config('request.jwt.claims',
+    json_build_object('sub', current_setting('b1.nomem'), 'role', 'authenticated', 'is_anonymous', true)::text, true);
+  SET LOCAL ROLE authenticated;
+  r := public.seo_brain_link_intent_redeem(current_setting('li.code_b'), true);
+  RESET ROLE;
+
+  IF r->>'outcome' <> 'anonymous_session_not_eligible' THEN
+    RAISE EXCEPTION 'an anonymous session must be refused, got %', r;
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.seo_brain_actor_links WHERE brain_actor_id = 'LINKINTENT-VERIFY-actor-b') THEN
+    RAISE EXCEPTION 'an anonymous session must never create an actor mapping';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM public.seo_brain_link_intents WHERE brain_actor_id = 'LINKINTENT-VERIFY-actor-b' AND status = 'issued'
+  ) THEN
+    RAISE EXCEPTION 'a refused anonymous session must not burn the code';
+  END IF;
+END $$;
+SELECT set_config('request.jwt.claims',     '', false),
+       set_config('request.jwt.claim.sub',  '', false),
+       set_config('request.jwt.claim.role', '', false);
+
+-- 4b. No SEO module access (row absent, then inactive): refused, no mapping.
+DELETE FROM public.user_module_access
+WHERE user_id = current_setting('b1.nomem')::uuid AND module_name = 'seo';
+
+DO $$
+DECLARE
+  r jsonb;
+BEGIN
+  PERFORM set_config('request.jwt.claims',
+    json_build_object('sub', current_setting('b1.nomem'), 'role', 'authenticated')::text, true);
+  SET LOCAL ROLE authenticated;
+  r := public.seo_brain_link_intent_redeem(current_setting('li.code_b'), true);
+  RESET ROLE;
+  IF r->>'outcome' <> 'seo_access_required' THEN
+    RAISE EXCEPTION 'a session with no SEO module access must be refused, got %', r;
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.seo_brain_actor_links WHERE brain_actor_id = 'LINKINTENT-VERIFY-actor-b') THEN
+    RAISE EXCEPTION 'a session with no module access must never create an actor mapping';
+  END IF;
+END $$;
+SELECT set_config('request.jwt.claims',     '', false),
+       set_config('request.jwt.claim.sub',  '', false),
+       set_config('request.jwt.claim.role', '', false);
+
+INSERT INTO public.user_module_access (user_id, module_name, is_active)
+VALUES (current_setting('b1.nomem')::uuid, 'seo', false);
+
+DO $$
+DECLARE
+  r jsonb;
+BEGIN
+  PERFORM set_config('request.jwt.claims',
+    json_build_object('sub', current_setting('b1.nomem'), 'role', 'authenticated')::text, true);
+  SET LOCAL ROLE authenticated;
+  r := public.seo_brain_link_intent_redeem(current_setting('li.code_b'), true);
+  RESET ROLE;
+  IF r->>'outcome' <> 'seo_access_required' THEN
+    RAISE EXCEPTION 'a session with deactivated SEO module access must be refused, got %', r;
+  END IF;
+END $$;
+SELECT set_config('request.jwt.claims',     '', false),
+       set_config('request.jwt.claim.sub',  '', false),
+       set_config('request.jwt.claim.role', '', false);
+
+UPDATE public.user_module_access SET is_active = true
+WHERE user_id = current_setting('b1.nomem')::uuid AND module_name = 'seo';
+
+-- 4c. Informed consent, and no mapping without confirmation.
+DO $$
+DECLARE
+  r jsonb;
+BEGIN
   PERFORM set_config('request.jwt.claims',
     json_build_object('sub', current_setting('b1.nomem'), 'role', 'authenticated')::text, true);
   SET LOCAL ROLE authenticated;
 
-  -- Unconfirmed: a decision is not yet made, so nothing is claimed.
   r := public.seo_brain_link_intent_redeem(current_setting('li.code_b'), false);
+  RESET ROLE;
+
   IF r->>'outcome' <> 'confirmation_required' THEN
-    RESET ROLE;
     RAISE EXCEPTION 'a live session without confirm must ask for confirmation, got %', r;
   END IF;
+  IF r->>'brainConfirmedEmail' <> 'b-case@example.test'
+     OR r->>'businessDisplayName' <> 'Fixture Business B'
+     OR r->>'normalizedHost' <> 'linkintent-verify-a.test' THEN
+    RAISE EXCEPTION 'confirmation must carry the Brain email, Business name and host, got %', r;
+  END IF;
+  IF r ? 'intentId' OR r ? 'brainBusinessId' OR r ? 'brainActorId' OR (SELECT count(*) FROM jsonb_object_keys(r)) <> 4 THEN
+    RAISE EXCEPTION 'confirmation must expose no internal identifier, got %', r;
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.seo_brain_actor_links WHERE brain_actor_id = 'LINKINTENT-VERIFY-actor-b') THEN
+    RAISE EXCEPTION 'case B must not create a mapping without confirmation';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM public.seo_brain_link_intents WHERE brain_actor_id = 'LINKINTENT-VERIFY-actor-b' AND status = 'issued'
+  ) THEN
+    RAISE EXCEPTION 'an unconfirmed redemption must not claim the intent';
+  END IF;
+END $$;
+SELECT set_config('request.jwt.claims',     '', false),
+       set_config('request.jwt.claim.sub',  '', false),
+       set_config('request.jwt.claim.role', '', false);
 
-  -- The SAME code, still valid: confirming now creates the mapping.
+-- 4d. The SAME code, still valid: confirming now creates the mapping.
+DO $$
+DECLARE
+  r jsonb;
+BEGIN
+  PERFORM set_config('request.jwt.claims',
+    json_build_object('sub', current_setting('b1.nomem'), 'role', 'authenticated')::text, true);
+  SET LOCAL ROLE authenticated;
   r := public.seo_brain_link_intent_redeem(current_setting('li.code_b'), true);
+  RESET ROLE;
+
   IF r->>'outcome' <> 'case_b_confirmed' THEN
-    RESET ROLE;
     RAISE EXCEPTION 'a confirmed live session must resolve to case_b_confirmed, got %', r;
   END IF;
   IF (r->>'seoUserId')::uuid <> current_setting('b1.nomem')::uuid THEN
-    RESET ROLE;
     RAISE EXCEPTION 'case B must bind the signed-in user, got %', r;
   END IF;
-
-  RESET ROLE;
 END $$;
 SELECT set_config('request.jwt.claims',     '', false),
        set_config('request.jwt.claim.sub',  '', false),
@@ -362,7 +543,7 @@ SELECT set_config('request.jwt.claims',     '', false),
        set_config('request.jwt.claim.sub',  '', false),
        set_config('request.jwt.claim.role', '', false);
 
--- Free b1.nomem again so Sections 6 and 8 start from a genuinely clean slate.
+-- Free b1.nomem again so Sections 6 and 7 start from a genuinely clean slate.
 DELETE FROM public.seo_brain_actor_links WHERE brain_actor_id = 'LINKINTENT-VERIFY-actor-b';
 
 -- ---------------------------------------------------------------------------
@@ -399,14 +580,15 @@ END $$;
 
 -- ---------------------------------------------------------------------------
 -- 6. Case A: a genuinely new email. Reaches pending_provisioning and nothing
---    else. pending_email discloses the email only while genuinely pending.
+--    else. pending_by_code discloses the intent only while genuinely pending,
+--    and neither redeem nor pending_by_code ever hands the browser an intent id.
 -- ---------------------------------------------------------------------------
 DO $$
 DECLARE
   created jsonb;
   r jsonb;
   intent_id uuid;
-  email text;
+  p jsonb;
 BEGIN
   created := public.seo_brain_create_link_intent(
     'LINKINTENT-VERIFY-actor-a', 'a-case-new@example.test', 'LINKINTENT-VERIFY-biz-a', 'linkintent-verify-a.test');
@@ -414,10 +596,9 @@ BEGIN
   intent_id := (created->>'intentId')::uuid;
   PERFORM set_config('li.intent_a', intent_id::text, false);
 
-  -- Before redemption, the email is not yet disclosed: the intent is
-  -- 'issued', not 'pending_provisioning'.
-  email := public.seo_brain_link_intent_pending_email(intent_id);
-  IF email IS NOT NULL THEN RAISE EXCEPTION 'pending_email must be NULL before redemption, got %', email; END IF;
+  -- Before redemption the launch code is not yet pending_provisioning.
+  p := public.seo_brain_link_intent_pending_by_code(current_setting('li.code_a'));
+  IF p IS NOT NULL THEN RAISE EXCEPTION 'pending_by_code must be NULL before redemption, got %', p; END IF;
 
   r := public.seo_brain_link_intent_redeem(current_setting('li.code_a'), false);
   IF r->>'outcome' <> 'case_a_provisioning_required' THEN
@@ -426,33 +607,113 @@ BEGIN
   IF r->>'brainConfirmedEmail' <> 'a-case-new@example.test' THEN
     RAISE EXCEPTION 'case A must return the stored confirmed email, got %', r;
   END IF;
+  IF r ? 'intentId' THEN RAISE EXCEPTION 'case A redeem must not expose the intent id, got %', r; END IF;
 
-  -- Now genuinely pending: the trusted lookup discloses it.
-  email := public.seo_brain_link_intent_pending_email(intent_id);
-  IF email <> 'a-case-new@example.test' THEN
-    RAISE EXCEPTION 'pending_email must return the email while pending, got %', email;
+  -- Now genuinely pending: the trusted, code-keyed lookup discloses it.
+  p := public.seo_brain_link_intent_pending_by_code(current_setting('li.code_a'));
+  IF p->>'brainConfirmedEmail' <> 'a-case-new@example.test' OR (p->>'intentId')::uuid <> intent_id THEN
+    RAISE EXCEPTION 'pending_by_code must return the intent and email while pending, got %', p;
+  END IF;
+  IF public.seo_brain_link_intent_pending_by_code('not-the-code') IS NOT NULL
+     OR public.seo_brain_link_intent_pending_by_code('') IS NOT NULL THEN
+    RAISE EXCEPTION 'pending_by_code must return nothing for a wrong or empty code';
   END IF;
 
   -- Re-presenting the same code while pending is an idempotent peek, not a
   -- second claim: it returns the same outcome and burns nothing further.
   r := public.seo_brain_link_intent_redeem(current_setting('li.code_a'), false);
-  IF r->>'outcome' <> 'case_a_provisioning_required' THEN
-    RAISE EXCEPTION 're-presenting a pending code must still be case_a_provisioning_required, got %', r;
+  IF r->>'outcome' <> 'case_a_provisioning_required' OR r ? 'intentId' THEN
+    RAISE EXCEPTION 're-presenting a pending code must still be case_a_provisioning_required without an id, got %', r;
   END IF;
 END $$;
 
 -- ---------------------------------------------------------------------------
 -- 7. finalize_case_a, standing in for the edge function's post-createUser
 --    call. b1.nomem stands in for a user supabase.auth.admin.createUser would
---    have just created; this script never creates an Auth user itself.
+--    have just created for the Brain-confirmed email; this script never
+--    creates an Auth user itself. Because the redeem step only reaches
+--    pending_provisioning for an email with no account, the intent's stored
+--    email is set to b1.nomem's own email at the point the "account exists",
+--    exactly the state the edge function produces.
 -- ---------------------------------------------------------------------------
+-- b1.nomem's module-access row (snapshotted above) is removed so that finalize's
+-- own grant can be observed; teardown restores it verbatim.
+DELETE FROM public.user_module_access
+WHERE user_id = current_setting('b1.nomem')::uuid AND module_name = 'seo';
+
+-- 7a. Wrong user and email mismatch: refused, nothing claimed, nothing granted.
+DO $$
+DECLARE
+  intent_id uuid := current_setting('li.intent_a')::uuid;
+  r jsonb;
+BEGIN
+  -- Intent email 'a-case-new@example.test' is nobody's email: b1.nomem is the
+  -- wrong user by email.
+  r := public.seo_brain_link_intent_finalize_case_a(intent_id, current_setting('b1.nomem')::uuid);
+  IF r->>'resolution' <> 'identity_mismatch' THEN
+    RAISE EXCEPTION 'finalize_case_a must refuse an email mismatch, got %', r;
+  END IF;
+
+  -- Intent email set to b1.nomem's email: any other existing user is the wrong user.
+  UPDATE public.seo_brain_link_intents
+  SET brain_confirmed_email = (SELECT lower(btrim(email)) FROM auth.users WHERE id = current_setting('b1.nomem')::uuid)
+  WHERE id = intent_id;
+
+  r := public.seo_brain_link_intent_finalize_case_a(intent_id, current_setting('b1.client')::uuid);
+  IF r->>'resolution' <> 'identity_mismatch' THEN
+    RAISE EXCEPTION 'finalize_case_a must refuse an arbitrary existing SEO user, got %', r;
+  END IF;
+
+  IF EXISTS (SELECT 1 FROM public.seo_brain_actor_links WHERE brain_actor_id = 'LINKINTENT-VERIFY-actor-a') THEN
+    RAISE EXCEPTION 'a refused finalize must create no actor mapping';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.user_module_access WHERE user_id = current_setting('b1.nomem')::uuid AND module_name = 'seo') THEN
+    RAISE EXCEPTION 'a refused finalize must grant no module access';
+  END IF;
+  IF (SELECT status FROM public.seo_brain_link_intents WHERE id = intent_id) <> 'pending_provisioning' THEN
+    RAISE EXCEPTION 'a refused identity check must leave the intent pending_provisioning';
+  END IF;
+END $$;
+
+-- 7b. Deliberately revoked module access is NOT silently reactivated.
+INSERT INTO public.user_module_access (user_id, module_name, is_active)
+VALUES (current_setting('b1.nomem')::uuid, 'seo', false);
+
+DO $$
+DECLARE
+  r jsonb;
+BEGIN
+  r := public.seo_brain_link_intent_finalize_case_a(
+    current_setting('li.intent_a')::uuid, current_setting('b1.nomem')::uuid);
+  IF r->>'resolution' <> 'module_access_revoked' THEN
+    RAISE EXCEPTION 'finalize_case_a must fail closed on revoked module access, got %', r;
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM public.user_module_access
+    WHERE user_id = current_setting('b1.nomem')::uuid AND module_name = 'seo' AND is_active
+  ) THEN
+    RAISE EXCEPTION 'finalize_case_a must not reactivate deliberately revoked module access';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.seo_brain_actor_links WHERE brain_actor_id = 'LINKINTENT-VERIFY-actor-a') THEN
+    RAISE EXCEPTION 'a finalize refused for revoked access must create no actor mapping';
+  END IF;
+END $$;
+
+DELETE FROM public.user_module_access
+WHERE user_id = current_setting('b1.nomem')::uuid AND module_name = 'seo';
+
+-- 7c. Success. The stored email is upper-cased to prove the comparison is normalized.
 DO $$
 DECLARE
   intent_id uuid := current_setting('li.intent_a')::uuid;
   stand_in  uuid := current_setting('b1.nomem')::uuid;
   r jsonb;
-  email text;
+  p jsonb;
 BEGIN
+  UPDATE public.seo_brain_link_intents
+  SET brain_confirmed_email = upper((SELECT btrim(email) FROM auth.users WHERE id = stand_in))
+  WHERE id = intent_id;
+
   r := public.seo_brain_link_intent_finalize_case_a(intent_id, stand_in);
   IF r->>'resolution' <> 'resolved' THEN RAISE EXCEPTION 'finalize_case_a must resolve, got %', r; END IF;
   IF (r->>'seoUserId')::uuid <> stand_in THEN RAISE EXCEPTION 'finalize_case_a must bind the supplied user, got %', r; END IF;
@@ -470,10 +731,9 @@ BEGIN
     RAISE EXCEPTION 'finalize_case_a must create a brain_intent_new actor link, self-authorized';
   END IF;
 
-  -- Once resolved, pending_email no longer discloses anything: the intent is
-  -- 'redeemed', not 'pending_provisioning'.
-  email := public.seo_brain_link_intent_pending_email(intent_id);
-  IF email IS NOT NULL THEN RAISE EXCEPTION 'pending_email must be NULL once redeemed, got %', email; END IF;
+  -- Once resolved, the code no longer resolves for provisioning.
+  p := public.seo_brain_link_intent_pending_by_code(current_setting('li.code_a'));
+  IF p IS NOT NULL THEN RAISE EXCEPTION 'pending_by_code must be NULL once redeemed, got %', p; END IF;
 
   -- A second finalize on the same, now-redeemed intent is refused.
   r := public.seo_brain_link_intent_finalize_case_a(intent_id, stand_in);
@@ -483,7 +743,8 @@ BEGIN
 END $$;
 
 -- finalize_case_a refuses on a genuine actor conflict: b1.nomem is already
--- actively mapped (to actor-a, from the section above).
+-- actively mapped (to actor-a, from the section above). The intent email is set
+-- to b1.nomem's own so the identity check passes and the CONFLICT check is what fires.
 DO $$
 DECLARE
   created jsonb;
@@ -494,6 +755,9 @@ BEGIN
     'LINKINTENT-VERIFY-actor-a2', 'a2-case-new@example.test', 'LINKINTENT-VERIFY-biz-a2', 'linkintent-verify-a.test');
   intent_id := (created->>'intentId')::uuid;
   PERFORM public.seo_brain_link_intent_redeem(created->>'launchCode', false); -- -> pending_provisioning
+  UPDATE public.seo_brain_link_intents
+  SET brain_confirmed_email = (SELECT lower(btrim(email)) FROM auth.users WHERE id = current_setting('b1.nomem')::uuid)
+  WHERE id = intent_id;
 
   r := public.seo_brain_link_intent_finalize_case_a(intent_id, current_setting('b1.nomem')::uuid);
   IF r->>'resolution' <> 'actor_conflict' THEN
@@ -501,6 +765,34 @@ BEGIN
   END IF;
 END $$;
 DELETE FROM public.seo_brain_link_intents WHERE brain_actor_id = 'LINKINTENT-VERIFY-actor-a2';
+
+-- ---------------------------------------------------------------------------
+-- 7d. N3, actor mapping revoked between redemption and authorization. intent_a
+--     is redeemed to b1.nomem (Section 7c). Revoke that mapping as an operator
+--     (revoked_by stated explicitly, per the guard trigger), then authorize:
+--     it must be refused. This runs before the rest of Section 8 and permanently
+--     consumes nothing.
+-- ---------------------------------------------------------------------------
+UPDATE public.seo_brain_actor_links
+SET link_status = 'revoked', revoked_by = current_setting('b1.owner')::uuid
+WHERE brain_actor_id = 'LINKINTENT-VERIFY-actor-a' AND link_status = 'active';
+
+DO $$
+DECLARE
+  r jsonb;
+BEGIN
+  PERFORM set_config('request.jwt.claims',
+    json_build_object('sub', current_setting('b1.nomem'), 'role', 'authenticated')::text, true);
+  SET LOCAL ROLE authenticated;
+  r := public.seo_brain_link_authorize(current_setting('li.intent_a')::uuid, '11000000-0000-4000-8000-00000000000a');
+  RESET ROLE;
+  IF r->>'resolution' <> 'actor_mapping_inactive' THEN
+    RAISE EXCEPTION 'a mapping revoked after redemption must stop authorization, got %', r;
+  END IF;
+END $$;
+SELECT set_config('request.jwt.claims',     '', false),
+       set_config('request.jwt.claim.sub',  '', false),
+       set_config('request.jwt.claim.role', '', false);
 
 -- ---------------------------------------------------------------------------
 -- 8. authorize: the full precondition chain, using the case D intent redeemed
@@ -739,6 +1031,128 @@ SELECT set_config('request.jwt.claims',     '', false),
        set_config('request.jwt.claim.sub',  '', false),
        set_config('request.jwt.claim.role', '', false);
 
+-- 8i. B1, stale ownership after a website URL change. Fixture F is verified
+--     for host F-OLD, then its URL is changed to host F-NEW. The old evidence
+--     still says status = 'verified' but proves the OLD host only, so an intent
+--     for F-NEW must be refused as ownership_not_verified, and an intent for
+--     F-OLD as host_mismatch (the website is no longer at that host). The
+--     historical verification row is only read, never altered.
+INSERT INTO public.seo_websites (id, workspace_id, website_url, website_name, business_name, is_active)
+VALUES ('11000000-0000-4000-8000-00000000000f', '11000000-0000-4000-8000-000000000001',
+        'https://linkintent-verify-f-old.test', 'Fixture F, url changes', 'Fixture', true);
+INSERT INTO public.seo_ownership_verifications
+  (workspace_id, website_id, website_url, verification_host, method, status, challenge_token, verified_at, last_checked_at)
+VALUES ('11000000-0000-4000-8000-000000000001', '11000000-0000-4000-8000-00000000000f',
+        'https://linkintent-verify-f-old.test', 'linkintent-verify-f-old.test', 'dns_txt', 'verified',
+        'digibility-site-verification=linkintentverifytokenf', now(), now());
+UPDATE public.seo_websites SET website_url = 'https://linkintent-verify-f-new.test'
+WHERE id = '11000000-0000-4000-8000-00000000000f';
+
+DO $$
+DECLARE
+  before_row jsonb;
+  created jsonb;
+  intent_id uuid;
+  r jsonb;
+BEGIN
+  SELECT to_jsonb(v) INTO before_row FROM public.seo_ownership_verifications v
+  WHERE website_id = '11000000-0000-4000-8000-00000000000f';
+
+  created := public.seo_brain_create_link_intent(
+    current_setting('li.actor_d'), 'd-case-f@example.test', 'LINKINTENT-VERIFY-biz-f-new', 'linkintent-verify-f-new.test');
+  r := public.seo_brain_link_intent_redeem(created->>'launchCode', false);
+  intent_id := (r->>'intentId')::uuid;
+
+  PERFORM set_config('request.jwt.claims',
+    json_build_object('sub', current_setting('b1.owner'), 'role', 'authenticated')::text, true);
+  SET LOCAL ROLE authenticated;
+  r := public.seo_brain_link_authorize(intent_id, '11000000-0000-4000-8000-00000000000f');
+  RESET ROLE;
+  IF r->>'resolution' <> 'ownership_not_verified' THEN
+    RAISE EXCEPTION 'ownership verified for the previous host must not authorize the new host, got %', r;
+  END IF;
+
+  created := public.seo_brain_create_link_intent(
+    current_setting('li.actor_d'), 'd-case-f2@example.test', 'LINKINTENT-VERIFY-biz-f-old', 'linkintent-verify-f-old.test');
+  r := public.seo_brain_link_intent_redeem(created->>'launchCode', false);
+  PERFORM set_config('request.jwt.claims',
+    json_build_object('sub', current_setting('b1.owner'), 'role', 'authenticated')::text, true);
+  SET LOCAL ROLE authenticated;
+  r := public.seo_brain_link_authorize((r->>'intentId')::uuid, '11000000-0000-4000-8000-00000000000f');
+  RESET ROLE;
+  IF r->>'resolution' <> 'host_mismatch' THEN
+    RAISE EXCEPTION 'an intent for the previous host must be refused as host_mismatch, got %', r;
+  END IF;
+
+  IF (SELECT to_jsonb(v) FROM public.seo_ownership_verifications v
+      WHERE website_id = '11000000-0000-4000-8000-00000000000f') IS DISTINCT FROM before_row THEN
+    RAISE EXCEPTION 'authorize must not mutate historical ownership evidence';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.seo_brain_website_links WHERE website_id = '11000000-0000-4000-8000-00000000000f') THEN
+    RAISE EXCEPTION 'a refused authorize must create no link';
+  END IF;
+END $$;
+SELECT set_config('request.jwt.claims',     '', false),
+       set_config('request.jwt.claim.sub',  '', false),
+       set_config('request.jwt.claim.role', '', false);
+
+-- ---------------------------------------------------------------------------
+-- 8j. B3, the direct-INSERT customer bypass is closed, and the compatible
+--     paths still work.
+-- ---------------------------------------------------------------------------
+-- An ordinary workspace OWNER (b1.owner owns the fixture workspace) cannot
+-- insert a link straight into seo_brain_website_links, verified or not.
+DO $$
+BEGIN
+  PERFORM set_config('request.jwt.claims',
+    json_build_object('sub', current_setting('b1.owner'), 'role', 'authenticated')::text, true);
+  SET LOCAL ROLE authenticated;
+  BEGIN
+    INSERT INTO public.seo_brain_website_links (business_id, normalized_host, workspace_id, website_id)
+    VALUES ('LINKINTENT-VERIFY-biz-bypass', 'x', '11000000-0000-4000-8000-000000000001',
+            '11000000-0000-4000-8000-00000000000e');
+    RESET ROLE;
+    RAISE EXCEPTION 'an owner must not be able to create a Brain link by direct INSERT';
+  EXCEPTION WHEN insufficient_privilege THEN
+    RESET ROLE;
+  END;
+END $$;
+SELECT set_config('request.jwt.claims',     '', false),
+       set_config('request.jwt.claim.sub',  '', false),
+       set_config('request.jwt.claim.role', '', false);
+
+DO $$
+DECLARE
+  v_check text;
+BEGIN
+  IF EXISTS (SELECT 1 FROM public.seo_brain_website_links WHERE business_id = 'LINKINTENT-VERIFY-biz-bypass') THEN
+    RAISE EXCEPTION 'the refused direct INSERT must have created nothing';
+  END IF;
+
+  -- The policy is global-admin only, by definition, not merely by this fixture.
+  SELECT pg_get_expr(p.polwithcheck, p.polrelid) INTO v_check
+  FROM pg_policy p
+  WHERE p.polrelid = 'public.seo_brain_website_links'::regclass AND p.polname = 'seo_brain_website_links_insert';
+  IF v_check IS NULL OR v_check NOT LIKE '%seo_is_global_admin%' OR v_check LIKE '%seo_role_in%' THEN
+    RAISE EXCEPTION 'the direct INSERT policy must permit a global admin only, got %', v_check;
+  END IF;
+
+  -- Operator/bootstrap compatibility: a direct owner-session INSERT (the Stage 2B
+  -- synthetic acceptance path) is untouched by RLS and still works.
+  INSERT INTO public.seo_brain_website_links (business_id, normalized_host, workspace_id, website_id)
+  VALUES ('LINKINTENT-VERIFY-biz-operator', 'x', '11000000-0000-4000-8000-000000000001',
+          '11000000-0000-4000-8000-00000000000e');
+  IF NOT EXISTS (
+    SELECT 1 FROM public.seo_brain_website_links
+    WHERE business_id = 'LINKINTENT-VERIFY-biz-operator' AND link_status = 'active' AND source_intent_id IS NULL
+  ) THEN
+    RAISE EXCEPTION 'an operator session must still be able to create a link directly';
+  END IF;
+  DELETE FROM public.seo_brain_website_links WHERE business_id = 'LINKINTENT-VERIFY-biz-operator';
+END $$;
+-- The legitimate authorize path (Section 8a) already proved a customer link is
+-- created with a genuine linked_by and source_intent_id.
+
 -- ---------------------------------------------------------------------------
 -- 9. Grants.
 -- ---------------------------------------------------------------------------
@@ -748,7 +1162,7 @@ DECLARE
 BEGIN
   FOREACH fn IN ARRAY ARRAY[
     'public.seo_brain_create_link_intent(text, text, text, text, text)',
-    'public.seo_brain_link_intent_pending_email(uuid)',
+    'public.seo_brain_link_intent_pending_by_code(text)',
     'public.seo_brain_link_intent_finalize_case_a(uuid, uuid)'
   ] LOOP
     IF has_function_privilege('anon', fn, 'EXECUTE') THEN RAISE EXCEPTION 'anon must not execute %', fn; END IF;
@@ -766,16 +1180,36 @@ BEGIN
 END $$;
 
 -- ---------------------------------------------------------------------------
--- 10. RLS on seo_brain_link_intents: no human write path at all.
---
---     This project follows the same convention seen throughout this
---     repository's schema: table-level GRANTs to anon/authenticated are
---     broad, by Supabase's own default, and ROW LEVEL SECURITY is the actual
---     enforcement layer. has_table_privilege would therefore report a false
---     positive here; the only honest proof is attempting the write and
---     catching the refusal, exactly as the existing module boundary
---     verification script does for the client-role link-authorization case.
+-- 10. seo_brain_link_intents: explicit privileges (N5), and no human write path.
+--     The migration REVOKEs PUBLIC, anon and authenticated and grants back only
+--     SELECT to authenticated, so has_table_privilege is now an honest proof,
+--     and the attempted writes are refused at the privilege layer.
 -- ---------------------------------------------------------------------------
+DO $$
+DECLARE
+  priv text;
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_class c, LATERAL aclexplode(c.relacl) a
+    WHERE c.oid = 'public.seo_brain_link_intents'::regclass AND a.grantee = 0
+  ) THEN
+    RAISE EXCEPTION 'seo_brain_link_intents must grant nothing to PUBLIC';
+  END IF;
+
+  FOREACH priv IN ARRAY ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER'] LOOP
+    IF has_table_privilege('anon', 'public.seo_brain_link_intents', priv) THEN
+      RAISE EXCEPTION 'anon must have no % on seo_brain_link_intents', priv;
+    END IF;
+    IF priv = 'SELECT' THEN
+      IF NOT has_table_privilege('authenticated', 'public.seo_brain_link_intents', priv) THEN
+        RAISE EXCEPTION 'authenticated must keep SELECT on seo_brain_link_intents (RLS filters it)';
+      END IF;
+    ELSIF has_table_privilege('authenticated', 'public.seo_brain_link_intents', priv) THEN
+      RAISE EXCEPTION 'authenticated must have no % on seo_brain_link_intents', priv;
+    END IF;
+  END LOOP;
+END $$;
+
 DO $$
 BEGIN
   PERFORM set_config('request.jwt.claims',
@@ -790,24 +1224,24 @@ BEGIN
   EXCEPTION WHEN insufficient_privilege THEN
     RESET ROLE;
   END;
-END $$;
 
--- UPDATE (unlike INSERT's WITH CHECK) does not raise when RLS excludes every
--- row: with no UPDATE policy at all, the USING clause matches nothing, so the
--- honest proof is that it silently affects zero rows, not that it errors.
-DO $$
-DECLARE
-  n int;
-BEGIN
-  PERFORM set_config('request.jwt.claims',
-    json_build_object('sub', current_setting('b1.nomem'), 'role', 'authenticated')::text, true);
   SET LOCAL ROLE authenticated;
-  UPDATE public.seo_brain_link_intents SET status = 'refused' WHERE brain_actor_id LIKE 'LINKINTENT-VERIFY-%';
-  GET DIAGNOSTICS n = ROW_COUNT;
-  RESET ROLE;
-  IF n <> 0 THEN
-    RAISE EXCEPTION 'an authenticated user must not be able to update seo_brain_link_intents directly, affected % rows', n;
-  END IF;
+  BEGIN
+    UPDATE public.seo_brain_link_intents SET status = 'refused' WHERE brain_actor_id LIKE 'LINKINTENT-VERIFY-%';
+    RESET ROLE;
+    RAISE EXCEPTION 'an authenticated user must not be able to update seo_brain_link_intents directly';
+  EXCEPTION WHEN insufficient_privilege THEN
+    RESET ROLE;
+  END;
+
+  SET LOCAL ROLE authenticated;
+  BEGIN
+    DELETE FROM public.seo_brain_link_intents WHERE brain_actor_id LIKE 'LINKINTENT-VERIFY-%';
+    RESET ROLE;
+    RAISE EXCEPTION 'an authenticated user must not be able to delete from seo_brain_link_intents directly';
+  EXCEPTION WHEN insufficient_privilege THEN
+    RESET ROLE;
+  END;
 END $$;
 SELECT set_config('request.jwt.claims',     '', false),
        set_config('request.jwt.claim.sub',  '', false),
@@ -840,11 +1274,12 @@ SELECT set_config('request.jwt.claims',     '', false),
        set_config('request.jwt.claim.role', '', false);
 
 -- ---------------------------------------------------------------------------
--- TEARDOWN. Removes every fixture this script created, including the
--- module-access grant and actor link it placed on the shared b1.nomem
--- fixture, and the actor link it may have created on b1.owner (only when that
--- fallback was actually used), so this script leaves zero residue and
--- disturbs no pre-existing row.
+-- TEARDOWN. Removes every fixture this script created and RESTORES the shared
+-- b1.nomem module-access row to the exact state snapshotted at the start: a row
+-- that did not exist is deleted, a row that existed is put back with its
+-- snapshotted is_active / granted_by / granted_at (updated_at is maintained by
+-- the set_updated_at trigger and is not part of the access state). The actor
+-- link on b1.owner is removed only when this script created it.
 -- ---------------------------------------------------------------------------
 DO $$
 BEGIN
@@ -856,12 +1291,32 @@ END $$;
 DELETE FROM public.seo_brain_website_links WHERE business_id LIKE 'LINKINTENT-VERIFY-%';
 DELETE FROM public.seo_brain_link_intents WHERE brain_actor_id LIKE 'LINKINTENT-VERIFY-%';
 DELETE FROM public.seo_brain_actor_links WHERE brain_actor_id LIKE 'LINKINTENT-VERIFY-%';
-DELETE FROM public.user_module_access
-  WHERE user_id = '0723d21f-c02c-4725-851f-575f93f2f58c'::uuid AND module_name = 'seo';
+
+DO $restore$
+DECLARE
+  v_uid uuid := current_setting('b1.nomem')::uuid;
+BEGIN
+  IF current_setting('li.acc_existed') = 'true' THEN
+    INSERT INTO public.user_module_access (user_id, module_name, is_active, granted_by, granted_at)
+    VALUES (
+      v_uid, 'seo',
+      current_setting('li.acc_active')::boolean,
+      nullif(current_setting('li.acc_granted_by'), '')::uuid,
+      current_setting('li.acc_granted_at')::timestamptz
+    )
+    ON CONFLICT (user_id, module_name) DO UPDATE
+      SET is_active  = EXCLUDED.is_active,
+          granted_by = EXCLUDED.granted_by,
+          granted_at = EXCLUDED.granted_at;
+  ELSE
+    DELETE FROM public.user_module_access WHERE user_id = v_uid AND module_name = 'seo';
+  END IF;
+END $restore$;
+
 DELETE FROM public.seo_ownership_verifications WHERE website_id IN (
   '11000000-0000-4000-8000-00000000000a', '11000000-0000-4000-8000-00000000000b',
   '11000000-0000-4000-8000-00000000000c', '11000000-0000-4000-8000-00000000000d',
-  '11000000-0000-4000-8000-00000000000e'
+  '11000000-0000-4000-8000-00000000000e', '11000000-0000-4000-8000-00000000000f'
 );
 DELETE FROM public.seo_workspace_members WHERE workspace_id IN (
   '11000000-0000-4000-8000-000000000001', '11000000-0000-4000-8000-000000000002'
@@ -869,24 +1324,50 @@ DELETE FROM public.seo_workspace_members WHERE workspace_id IN (
 DELETE FROM public.seo_websites WHERE id IN (
   '11000000-0000-4000-8000-00000000000a', '11000000-0000-4000-8000-00000000000b',
   '11000000-0000-4000-8000-00000000000c', '11000000-0000-4000-8000-00000000000d',
-  '11000000-0000-4000-8000-00000000000e'
+  '11000000-0000-4000-8000-00000000000e', '11000000-0000-4000-8000-00000000000f'
 );
 DELETE FROM public.seo_workspaces WHERE id IN (
   '11000000-0000-4000-8000-000000000001', '11000000-0000-4000-8000-000000000002'
 );
 
 DO $$
+DECLARE
+  r record;
+  v_digest text;
 BEGIN
   IF EXISTS (SELECT 1 FROM public.seo_brain_link_intents WHERE brain_actor_id LIKE 'LINKINTENT-VERIFY-%')
      OR EXISTS (SELECT 1 FROM public.seo_brain_actor_links WHERE brain_actor_id LIKE 'LINKINTENT-VERIFY-%')
      OR EXISTS (SELECT 1 FROM public.seo_brain_website_links WHERE business_id LIKE 'LINKINTENT-VERIFY-%')
      OR EXISTS (SELECT 1 FROM public.seo_workspaces WHERE name LIKE 'LINKINTENT-VERIFY%')
-     OR EXISTS (
-          SELECT 1 FROM public.user_module_access
-          WHERE user_id = '0723d21f-c02c-4725-851f-575f93f2f58c'::uuid AND module_name = 'seo'
-        )
   THEN
     RAISE EXCEPTION 'TEARDOWN INCOMPLETE: residue remains after cleanup';
   END IF;
-  RAISE NOTICE 'seo_brain_link_intents_verification: all assertions passed, zero residue.';
+
+  -- The b1.nomem module-access row is exactly what it was.
+  SELECT * INTO r FROM public.user_module_access
+  WHERE user_id = current_setting('b1.nomem')::uuid AND module_name = 'seo';
+  IF current_setting('li.acc_existed') = 'true' THEN
+    IF NOT FOUND
+       OR r.is_active IS DISTINCT FROM current_setting('li.acc_active')::boolean
+       OR coalesce(r.granted_by::text, '') <> current_setting('li.acc_granted_by')
+       OR r.granted_at IS DISTINCT FROM current_setting('li.acc_granted_at')::timestamptz THEN
+      RAISE EXCEPTION 'TEARDOWN INCOMPLETE: the b1.nomem module-access row was not restored to its snapshot';
+    END IF;
+  ELSIF FOUND THEN
+    RAISE EXCEPTION 'TEARDOWN INCOMPLETE: a b1.nomem module-access row exists that did not exist before';
+  END IF;
+
+  -- Stage 2B historical evidence is byte for byte unchanged.
+  SELECT md5(coalesce(string_agg(x, '|' ORDER BY x), '')) INTO v_digest FROM (
+    SELECT 'a:' || to_jsonb(l)::text AS x FROM public.seo_brain_actor_links l
+     WHERE l.brain_actor_id NOT LIKE 'LINKINTENT-VERIFY-%'
+    UNION ALL
+    SELECT 'w:' || to_jsonb(w)::text FROM public.seo_brain_website_links w
+     WHERE w.business_id NOT LIKE 'LINKINTENT-VERIFY-%'
+  ) t;
+  IF v_digest IS DISTINCT FROM current_setting('li.evidence_digest') THEN
+    RAISE EXCEPTION 'TEARDOWN INCOMPLETE: pre-existing actor links or website links changed during this run';
+  END IF;
+
+  RAISE NOTICE 'seo_brain_link_intents_verification: all assertions passed, zero residue, fixtures restored.';
 END $$;

@@ -15,7 +15,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.50.3";
 import { createSupabaseSeoDataPort } from "./supabase-port.ts";
 import { serveModuleRequest } from "./http.ts";
-import { serveLinkIntentRequest, linkIntentPathFromUrl } from "./link-intent-http.ts";
+import { serveLinkIntentRequest, linkIntentPathFromUrl, parseAllowedOrigins } from "./link-intent-http.ts";
 import { createSupabaseAdminAuthPort, createSupabaseLinkIntentDataPort } from "./link-intent-port.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
@@ -35,6 +35,10 @@ const linkIntentPort = createSupabaseLinkIntentDataPort({
 });
 const adminAuthPort = createSupabaseAdminAuthPort(client.auth.admin);
 
+// Explicit SEO frontend origins for the browser-called provision path. Empty by
+// default, which refuses every browser origin.
+const allowedOrigins = parseAllowedOrigins(Deno.env.get("SEO_LINK_INTENT_ALLOWED_ORIGINS"));
+
 const log = (event: Record<string, unknown>) => console.log(JSON.stringify(event));
 
 Deno.serve((request: Request) => {
@@ -43,7 +47,7 @@ Deno.serve((request: Request) => {
   // specific runs, so it can never be reached through handleModuleRequest.
   const linkIntentPath = linkIntentPathFromUrl(request.url);
   if (linkIntentPath !== null) {
-    return serveLinkIntentRequest(request, linkIntentPath, { moduleApiSecret }, {
+    return serveLinkIntentRequest(request, linkIntentPath, { moduleApiSecret, allowedOrigins }, {
       db: linkIntentPort,
       admin: adminAuthPort,
       log,

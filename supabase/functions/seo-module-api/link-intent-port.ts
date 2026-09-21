@@ -23,10 +23,15 @@ export interface RpcCaller {
 
 /** The minimal slice of supabase-js's GoTrueAdminApi this module actually uses. */
 export interface AdminUserApi {
-  createUser(attrs: {
-    email: string;
-    email_confirm: boolean;
-  }): Promise<{ data: { user: { id: string } | null } | null; error: { message: string } | null }>;
+  createUser(attrs: { email: string; email_confirm: boolean }): Promise<{
+    data: { user: { id: string } | null } | null;
+    error: { message: string; code?: string; status?: number } | null;
+  }>;
+  generateLink(attrs: { type: "magiclink"; email: string }): Promise<{
+    data: { properties?: { hashed_token?: string } | null } | null;
+    error: { message: string } | null;
+  }>;
+  deleteUser(id: string): Promise<{ error: { message: string } | null }>;
 }
 
 async function callRpc(caller: RpcCaller, fn: string, args: Record<string, unknown>): Promise<unknown> {
@@ -67,9 +72,15 @@ export function createSupabaseLinkIntentDataPort(caller: RpcCaller): LinkIntentD
       };
     },
 
-    async pendingProvisioningEmail(intentId: string): Promise<string | null> {
-      const data = await callRpc(caller, "seo_brain_link_intent_pending_email", { p_intent_id: intentId });
-      return typeof data === "string" && data.length > 0 ? data : null;
+    async pendingProvisioning(launchCode: string) {
+      const data = await callRpc(caller, "seo_brain_link_intent_pending_by_code", {
+        p_launch_code: launchCode,
+      });
+      if (typeof data !== "object" || data === null) return null;
+      const record = data as Record<string, unknown>;
+      return typeof record.intentId === "string" && typeof record.brainConfirmedEmail === "string"
+        ? { intentId: record.intentId, email: record.brainConfirmedEmail }
+        : null;
     },
 
     async finalizeCaseA(intentId: string, seoUserId: string) {
@@ -99,9 +110,29 @@ export function createSupabaseAdminAuthPort(adminApi: AdminUserApi): AdminAuthPo
     async createPasswordlessUser(email: string) {
       const { data, error } = await adminApi.createUser({ email, email_confirm: true });
       if (error || !data?.user?.id) {
-        return { error: error?.message ?? "createUser returned no user" };
+        const duplicate =
+          error?.code === "email_exists" ||
+          error?.status === 422 ||
+          /already (been )?registered|already exists/i.test(error?.message ?? "");
+        return { error: error?.message ?? "createUser returned no user", ...(duplicate ? { duplicate: true } : {}) };
       }
       return { userId: data.user.id };
+    },
+
+    // generateLink only mints a token; it sends no email. hashed_token is what
+    // the browser passes to verifyOtp({ token_hash, type: 'magiclink' }).
+    async generateMagicLinkToken(email: string) {
+      const { data, error } = await adminApi.generateLink({ type: "magiclink", email });
+      const tokenHash = data?.properties?.hashed_token;
+      if (error || !tokenHash) {
+        return { error: error?.message ?? "generateLink returned no token" };
+      }
+      return { tokenHash };
+    },
+
+    async deleteUser(userId: string) {
+      const { error } = await adminApi.deleteUser(userId);
+      return error ? { error: error.message } : { ok: true as const };
     },
   };
 }
