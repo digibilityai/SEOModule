@@ -853,3 +853,137 @@ different task.
   targets Deno and is not covered by project `tsc`; the boundary test files
   carry a pre-existing union-narrowing pattern that a strict direct check
   flags. Neither affects the production modules, which check clean.
+
+## 9. D-026A SEO PR-1: cross-repo linking foundation
+
+**Status: implemented on branch `feat/seo-brain-link-intents`, NOT deployed
+and NOT accepted.** Migration `20260921120000_seo_brain_link_intents.sql` is
+additive only and has not been applied to any Supabase project. The Edge
+Function changes have not been deployed. No SEO UI exists yet; this is the
+backend primitive a later UI change will call.
+
+**Purpose.** Today the only way a Business gets linked to an SEO website is a
+human with direct database access: `seo_brain_website_links` has no product
+surface (see "No product UI" note above, which described the analogous gap for
+actor links; the website-link gap was found and reported the same way, in the
+D-026 acceptance-readiness task that preceded this one). This section describes
+the minimum backend addition that lets a Brain-authenticated customer
+eventually authorize a verified SEO website for a real Brain Business,
+themselves, without a human operator running SQL by hand. It changes nothing
+about the six capabilities above, nothing about Contract v1, and creates no new
+authentication system: SEO's existing `auth.users`, workspaces, roles and DNS
+ownership verification remain the only sources of truth.
+
+### 9.1 Three trust boundaries
+
+| Call | Caller | Authenticated by | Grant |
+|---|---|---|---|
+| `create_intent` | Digi Brain server | The existing `SEO_MODULE_API_SECRET`, the same bearer secret every Contract v1 exchange already uses | `service_role` only |
+| `redeem` | The customer's own browser | The ordinary anon/authenticated Supabase client and, when one exists, a genuine live SEO session; not secret gated, because a browser cannot hold the machine secret | `anon` and `authenticated` |
+| `provision` (case A only) | The customer's own browser | Nothing beyond a genuinely `pending_provisioning` `intentId`; see 9.4 | Not secret gated; safety is server-side state, not a credential |
+| `finalize_case_a` | The Edge Function itself, right after `provision` creates an Auth user | Called only from within the Edge Function process | `service_role` only |
+| `authorize` | The customer's own browser, now signed in | The ordinary authenticated Supabase client | `authenticated` only |
+
+No new secret was introduced. `create_intent` reuses the existing machine
+credential; everything else runs through the same anon/authenticated,
+RLS-and-`auth.uid()`-governed path every other customer-facing SEO RPC already
+uses.
+
+### 9.2 `create_intent`
+
+Request (validated independently by SQL, not trusted from the caller):
+
+```
+brainActorId          text, 1..200 chars
+brainConfirmedEmail   text, must look like an email
+brainBusinessId       text, 1..200 chars
+normalizedHost        text, must already be canonical (seo_brain_normalize_host(host) = host)
+businessDisplayName   text, optional, <=200 chars, presentation only, never read by any authorization decision
+```
+
+Response: `{ intentId, launchCode, redemptionExpiresAt }`. `launchCode` is
+returned exactly once, is 256 bits of random entropy, and is never stored:
+only its SHA-256 is kept. Do not put `brainActorId`, `brainBusinessId` or any
+website id in a browser URL; `launchCode` is the only opaque value Brain's
+return flow needs to carry.
+
+### 9.3 Redemption outcomes (cases A to D)
+
+`seo_brain_link_intent_redeem(launchCode, confirm = false)` is called by the
+browser directly. Case D is checked first and unconditionally; only when no
+active actor mapping exists does the browser's own live session (or its
+absence) decide between case B and cases A/C.
+
+| Outcome | Case | Meaning |
+|---|---|---|
+| `invalid_or_expired_code` | | Unknown code, already used, or past its ~120 second window |
+| `case_d_resolved` | D | An active `seo_brain_actor_links` mapping for this Brain actor already exists; resolves to it unconditionally, no session required |
+| `confirmation_required` | B, step 1 | A live SEO session exists and no mapping exists yet; nothing is claimed, the same code may be re-presented with `confirm: true` |
+| `case_b_confirmed` | B, step 2 | The live session explicitly confirmed; a `link_method = 'brain_intent_confirmed'` actor mapping is created, `linked_by` genuinely from `auth.uid()` |
+| `case_b_conflict` | B | The live session is already actively mapped to a *different* Brain actor; refused, nothing created |
+| `existing_account_verification_required` | C | The Brain-confirmed email already has an SEO identity and no session/mapping exists; refused, nothing created. Email is used only to choose between "create" (case A) and "refuse" here; it never merges an intent into an existing account |
+| `case_a_provisioning_required` | A | The email is genuinely new; the intent moves to `pending_provisioning` and the browser must call `provision` next |
+
+### 9.4 `provision` and `finalize_case_a` (case A only)
+
+No SQL function may safely call GoTrue's user-creation flow, so case A is the
+one path that crosses into the Edge Function:
+
+1. Browser calls `provision({ intentId })`. **The request carries no email.**
+2. The Edge Function calls `seo_brain_link_intent_pending_email(intentId)`,
+   which discloses the stored, Brain-confirmed email **only** while the intent
+   is genuinely `pending_provisioning` and unexpired, and returns nothing
+   otherwise. This is the only email account creation ever uses; a caller who
+   has learned a real `intentId` still cannot bind an email of their own
+   choosing to it.
+3. The Edge Function calls `supabase.auth.admin.createUser({ email,
+   email_confirm: true })`, the official Admin API, no password set.
+4. The Edge Function calls `seo_brain_link_intent_finalize_case_a(intentId,
+   newUserId)`, which grants minimal `user_module_access` (`module_name =
+   'seo'`), creates a `link_method = 'brain_intent_new'` actor mapping
+   (`linked_by` is the new user itself: the proof is the single-use code plus
+   the Brain-confirmed email, exactly as this section's design calls for), and
+   marks the intent `redeemed`.
+
+### 9.5 `authorize`
+
+`seo_brain_link_authorize(intentId, websiteId)`, called by the now signed-in
+customer. Verifies, in order: a real session; the intent is `redeemed`, not
+already spent, and within its ~30 minute consent window; the caller is exactly
+the intent's redeemed user; the caller holds SEO module access; the website
+exists and the caller is at least a member of its workspace (else
+`website_not_found`, indistinguishable from a nonexistent id, so this cannot be
+used to probe another workspace); the caller is `owner` or `admin` there (else
+`unauthorized`, distinct from `website_not_found`, because a mere member
+already has legitimate visibility into that website); the website is active;
+its normalized host equals the intent's; domain ownership is genuinely
+`verified`; and no conflicting active `(business, host)` or `(website)` link
+exists. On success it creates the `seo_brain_website_links` row with a genuine
+`linked_by = auth.uid()` and `source_intent_id`, and marks the intent
+`link_created`. Each intent authorizes at most one link.
+
+The existing owner/admin `seo_brain_website_links` INSERT policy is
+unchanged and still works exactly as before: it is the administrative/manual
+path the Stage 2B synthetic acceptance link used, and this section adds a
+second, additionally-verified path alongside it rather than replacing it.
+Whether to tighten or remove the plain INSERT path is a separate, deliberately
+deferred decision; see "Known nonblocking findings" in the PR description.
+
+### 9.6 Deferred, honestly
+
+* **No SEO UI.** Every function above is backend only. A later change wires
+  the SEO frontend to `redeem`, the confirmation prompt, and `authorize`.
+* **Fixed Brain return contract.** Section-level agreement on the exact
+  allow-listed Brain origin/path the customer returns to after `authorize` is
+  a cross-repo detail for that later UI change, not built here.
+* **Rate limiting.** `redeem` and `provision` have no request-rate limiting of
+  their own yet. The launch code's entropy and short window bound guessing;
+  they do not bound request volume.
+* **A from-scratch case B success path was not exercised against
+  `Digi_SEO_Test`'s real data**, because both non-`b1.nomem` shared fixture
+  users already carry real, active Stage 2B actor mappings that must not be
+  disturbed (revocation is terminal). `seo_brain_link_intents_verification.sql`
+  exercises case B's confirmation and conflict sub-paths against real data, and
+  the success sub-path's own write (an `INSERT` with `linked_by` from a live
+  `auth.uid()`) is the same code shape the case D and authorize sections of
+  that same script already prove works correctly for genuine sessions.
