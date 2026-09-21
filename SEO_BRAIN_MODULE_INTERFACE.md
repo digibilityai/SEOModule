@@ -981,8 +981,18 @@ never sends `*`, refuses (403, no CORS headers) any request whose `Origin` is
 not listed, answers an allowed preflight with `POST, OPTIONS`, and an empty
 list refuses every browser origin. `link-intent/create` sends no CORS headers
 at all. This is a browser access control, not authentication: safety still
-rests on the launch code and server-side state. Deploying also requires the
-function's JWT gateway setting to accept the browser's anon key.
+rests on the launch code and server-side state.
+
+**Gateway JWT setting.** `seo-module-api` requires `verify_jwt = false`,
+pinned in `supabase/config.toml`. This is not a change: Brain's Contract v1
+transport already sends the module secret, not a Supabase JWT, as its bearer
+token, so gateway verification was never usable here. The Supabase JWT gateway
+is not this function's security boundary. Route-level authorization is, and it
+is mandatory on every route: Contract v1 routes and `link-intent/create` require
+`SEO_MODULE_API_SECRET` (fail closed if it is missing or wrong),
+`link-intent/provision` requires a short-lived, high-entropy, single-use launch
+code that is currently `pending_provisioning`, and any other path falls through
+to the Contract v1 secret check and is refused.
 
 ### 9.5 `authorize`
 
@@ -1019,9 +1029,9 @@ link) bypasses RLS and is unaffected, every historical link row is unchanged,
 and the owner/admin UPDATE (revoke) policy is unchanged.
 
 **Intent table privileges.** `seo_brain_link_intents` grants nothing to
-`PUBLIC` or `anon` and only `SELECT` to `authenticated` (further filtered by
-RLS to the redeemed user or a global admin). All writes happen inside the
-`SECURITY DEFINER` functions.
+`PUBLIC`, `anon` or `authenticated`, and has RLS enabled with no policy. No
+product path reads it directly: every read and write happens inside the
+`SECURITY DEFINER` functions above or through the service-role edge function.
 
 **Safe verification.** `seo_brain_link_intents_verification.sql` is not
 transactional by itself. Run it wrapped in `BEGIN; ... ROLLBACK;` (exact

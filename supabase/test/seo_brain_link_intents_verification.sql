@@ -145,7 +145,8 @@ BEGIN
     RAISE EXCEPTION 'PREREQUISITE FAILED: public.seo_brain_link_authorize is absent.';
   END IF;
 
-  IF EXISTS (SELECT 1 FROM public.seo_brain_link_intents WHERE brain_actor_id LIKE 'LINKINTENT-VERIFY-%')
+  IF EXISTS (SELECT 1 FROM public.seo_brain_link_intents
+             WHERE (brain_actor_id LIKE 'LINKINTENT-VERIFY-%' OR brain_business_id LIKE 'LINKINTENT-VERIFY-%'))
      OR EXISTS (SELECT 1 FROM public.seo_workspaces WHERE name LIKE 'LINKINTENT-VERIFY%')
      OR EXISTS (SELECT 1 FROM public.seo_brain_actor_links WHERE brain_actor_id LIKE 'LINKINTENT-VERIFY-%') THEN
     RAISE EXCEPTION 'PREREQUISITE FAILED: fixtures from a previous run are still present.';
@@ -236,24 +237,24 @@ DO $$
 DECLARE
   r jsonb;
 BEGIN
-  r := public.seo_brain_create_link_intent('', 'a@b.com', 'biz-1', 'linkintent-verify-a.test');
+  r := public.seo_brain_create_link_intent('', 'a@b.com', 'LINKINTENT-VERIFY-biz-1', 'linkintent-verify-a.test');
   IF r->>'resolution' <> 'invalid_request' THEN RAISE EXCEPTION 'empty actor id must be refused, got %', r; END IF;
 
-  r := public.seo_brain_create_link_intent('actor-1', 'not-an-email', 'biz-1', 'linkintent-verify-a.test');
+  r := public.seo_brain_create_link_intent('LINKINTENT-VERIFY-actor-1', 'not-an-email', 'LINKINTENT-VERIFY-biz-1', 'linkintent-verify-a.test');
   IF r->>'resolution' <> 'invalid_request' THEN RAISE EXCEPTION 'bad email must be refused, got %', r; END IF;
 
-  r := public.seo_brain_create_link_intent('actor-1', 'a@b.com', '', 'linkintent-verify-a.test');
+  r := public.seo_brain_create_link_intent('LINKINTENT-VERIFY-actor-1', 'a@b.com', '', 'linkintent-verify-a.test');
   IF r->>'resolution' <> 'invalid_request' THEN RAISE EXCEPTION 'empty business id must be refused, got %', r; END IF;
 
-  r := public.seo_brain_create_link_intent('actor-1', 'a@b.com', 'biz-1', 'https://linkintent-verify-a.test');
+  r := public.seo_brain_create_link_intent('LINKINTENT-VERIFY-actor-1', 'a@b.com', 'LINKINTENT-VERIFY-biz-1', 'https://linkintent-verify-a.test');
   IF r->>'resolution' <> 'invalid_request' THEN
     RAISE EXCEPTION 'a non-canonical host (scheme present) must be refused, got %', r;
   END IF;
 
-  r := public.seo_brain_create_link_intent('actor-1', 'a@b.com', 'biz-1', 'linkintent-verify-a.test', repeat('x', 201));
+  r := public.seo_brain_create_link_intent('LINKINTENT-VERIFY-actor-1', 'a@b.com', 'LINKINTENT-VERIFY-biz-1', 'linkintent-verify-a.test', repeat('x', 201));
   IF r->>'resolution' <> 'invalid_request' THEN RAISE EXCEPTION 'an overlong display name must be refused, got %', r; END IF;
 
-  r := public.seo_brain_create_link_intent('actor-1', 'A@B.com', 'biz-1', 'linkintent-verify-a.test', 'Fixture Business');
+  r := public.seo_brain_create_link_intent('LINKINTENT-VERIFY-actor-1', 'A@B.com', 'LINKINTENT-VERIFY-biz-1', 'linkintent-verify-a.test', 'Fixture Business');
   IF r->>'resolution' <> 'created' OR NOT (r ? 'intentId') OR NOT (r ? 'launchCode') OR NOT (r ? 'redemptionExpiresAt') THEN
     RAISE EXCEPTION 'a well formed request must create an intent, got %', r;
   END IF;
@@ -1181,9 +1182,10 @@ END $$;
 
 -- ---------------------------------------------------------------------------
 -- 10. seo_brain_link_intents: explicit privileges (N5), and no human write path.
---     The migration REVOKEs PUBLIC, anon and authenticated and grants back only
---     SELECT to authenticated, so has_table_privilege is now an honest proof,
---     and the attempted writes are refused at the privilege layer.
+--     The migration REVOKEs PUBLIC, anon and authenticated and grants nothing
+--     back, and leaves RLS enabled with no policy, so has_table_privilege is an
+--     honest proof and every direct read or write is refused at the privilege
+--     layer. All access goes through the SECURITY DEFINER RPCs.
 -- ---------------------------------------------------------------------------
 DO $$
 DECLARE
@@ -1200,14 +1202,17 @@ BEGIN
     IF has_table_privilege('anon', 'public.seo_brain_link_intents', priv) THEN
       RAISE EXCEPTION 'anon must have no % on seo_brain_link_intents', priv;
     END IF;
-    IF priv = 'SELECT' THEN
-      IF NOT has_table_privilege('authenticated', 'public.seo_brain_link_intents', priv) THEN
-        RAISE EXCEPTION 'authenticated must keep SELECT on seo_brain_link_intents (RLS filters it)';
-      END IF;
-    ELSIF has_table_privilege('authenticated', 'public.seo_brain_link_intents', priv) THEN
+    IF has_table_privilege('authenticated', 'public.seo_brain_link_intents', priv) THEN
       RAISE EXCEPTION 'authenticated must have no % on seo_brain_link_intents', priv;
     END IF;
   END LOOP;
+
+  IF EXISTS (SELECT 1 FROM pg_policy WHERE polrelid = 'public.seo_brain_link_intents'::regclass) THEN
+    RAISE EXCEPTION 'seo_brain_link_intents must have no RLS policy (deny by default)';
+  END IF;
+  IF NOT (SELECT relrowsecurity FROM pg_class WHERE oid = 'public.seo_brain_link_intents'::regclass) THEN
+    RAISE EXCEPTION 'seo_brain_link_intents must keep RLS enabled';
+  END IF;
 END $$;
 
 DO $$
@@ -1247,6 +1252,7 @@ SELECT set_config('request.jwt.claims',     '', false),
        set_config('request.jwt.claim.sub',  '', false),
        set_config('request.jwt.claim.role', '', false);
 
+-- Not even the redeemed owner can read an intent directly, own row included.
 DO $$
 DECLARE
   n int;
@@ -1254,20 +1260,13 @@ BEGIN
   PERFORM set_config('request.jwt.claims',
     json_build_object('sub', current_setting('b1.owner'), 'role', 'authenticated')::text, true);
   SET LOCAL ROLE authenticated;
-
-  SELECT count(*) INTO n FROM public.seo_brain_link_intents WHERE redeemed_seo_user_id = current_setting('b1.owner')::uuid;
-  IF n = 0 THEN
+  BEGIN
+    SELECT count(*) INTO n FROM public.seo_brain_link_intents WHERE redeemed_seo_user_id = current_setting('b1.owner')::uuid;
     RESET ROLE;
-    RAISE EXCEPTION 'the redeemed owner must be able to select their own intent';
-  END IF;
-
-  SELECT count(*) INTO n FROM public.seo_brain_link_intents WHERE redeemed_seo_user_id = current_setting('b1.nomem')::uuid;
-  IF n <> 0 THEN
+    RAISE EXCEPTION 'an authenticated user must not be able to select from seo_brain_link_intents directly';
+  EXCEPTION WHEN insufficient_privilege THEN
     RESET ROLE;
-    RAISE EXCEPTION 'the owner must not see a different user''s redeemed intent, saw %', n;
-  END IF;
-
-  RESET ROLE;
+  END;
 END $$;
 SELECT set_config('request.jwt.claims',     '', false),
        set_config('request.jwt.claim.sub',  '', false),
@@ -1289,7 +1288,12 @@ BEGIN
 END $$;
 
 DELETE FROM public.seo_brain_website_links WHERE business_id LIKE 'LINKINTENT-VERIFY-%';
-DELETE FROM public.seo_brain_link_intents WHERE brain_actor_id LIKE 'LINKINTENT-VERIFY-%';
+-- Intents are identified by the fixture Business id as well as the fixture
+-- actor id: Case D (and every Section 8 intent) deliberately reuses b1.owner's
+-- REAL Stage 2B actor id on Digi_SEO_Test, so the actor marker alone would miss
+-- them. Every intent this script creates carries a LINKINTENT-VERIFY- Business.
+DELETE FROM public.seo_brain_link_intents
+WHERE (brain_actor_id LIKE 'LINKINTENT-VERIFY-%' OR brain_business_id LIKE 'LINKINTENT-VERIFY-%');
 DELETE FROM public.seo_brain_actor_links WHERE brain_actor_id LIKE 'LINKINTENT-VERIFY-%';
 
 DO $restore$
@@ -1335,7 +1339,8 @@ DECLARE
   r record;
   v_digest text;
 BEGIN
-  IF EXISTS (SELECT 1 FROM public.seo_brain_link_intents WHERE brain_actor_id LIKE 'LINKINTENT-VERIFY-%')
+  IF EXISTS (SELECT 1 FROM public.seo_brain_link_intents
+             WHERE (brain_actor_id LIKE 'LINKINTENT-VERIFY-%' OR brain_business_id LIKE 'LINKINTENT-VERIFY-%'))
      OR EXISTS (SELECT 1 FROM public.seo_brain_actor_links WHERE brain_actor_id LIKE 'LINKINTENT-VERIFY-%')
      OR EXISTS (SELECT 1 FROM public.seo_brain_website_links WHERE business_id LIKE 'LINKINTENT-VERIFY-%')
      OR EXISTS (SELECT 1 FROM public.seo_workspaces WHERE name LIKE 'LINKINTENT-VERIFY%')

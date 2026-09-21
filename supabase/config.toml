@@ -1,0 +1,16 @@
+# Committed for ONE reason: to pin the gateway JWT setting of the
+# seo-module-api Edge Function, so a plain `supabase functions deploy` (whose
+# default is verify_jwt = true) can never silently change it.
+#
+# seo-module-api requires verify_jwt = false. Digi Brain's Contract v1
+# transport sends the module secret, not a Supabase JWT, as its bearer token,
+# so gateway verification was never this function's security boundary.
+# Route-level authorization is, and it is mandatory on every route (see
+# supabase/functions/seo-module-api/http.ts and link-intent-http.ts, and
+# SEO_BRAIN_MODULE_INTERFACE.md section 9.4).
+#
+# Everything else is left at the CLI defaults on purpose. Local-stack settings
+# such as project_id stay per-session; see SEO_LOCAL_DATABASE_SETUP.md section 2.
+
+[functions.seo-module-api]
+verify_jwt = false

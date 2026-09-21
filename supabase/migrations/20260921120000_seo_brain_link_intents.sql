@@ -131,27 +131,21 @@ CREATE TRIGGER trg_seo_brain_link_intents_updated_at
   BEFORE UPDATE ON public.seo_brain_link_intents
   FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
--- RLS. No human INSERT/UPDATE path at all: every mutation below happens inside
--- a SECURITY DEFINER function, which bypasses RLS as the table owner. Only a
--- narrow SELECT is granted, so a customer can see their own redeemed intent
--- and nothing about anyone else's.
+-- RLS, and no direct human access at all. Every read and write below happens
+-- inside a SECURITY DEFINER function, which bypasses RLS as the table owner, or
+-- through the service-role edge function. Nothing in the product reads this
+-- table directly, so RLS is enabled with no policy: deny by default.
 ALTER TABLE public.seo_brain_link_intents ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS seo_brain_link_intents_select ON public.seo_brain_link_intents;
-CREATE POLICY seo_brain_link_intents_select
-  ON public.seo_brain_link_intents
-  FOR SELECT
-  TO authenticated
-  USING (redeemed_seo_user_id = auth.uid() OR public.seo_is_global_admin());
 
 -- Explicit privileges (review N5). Never rely on Supabase's default table
--- grants: strip everything from PUBLIC, anon and authenticated, then grant back
--- only SELECT to authenticated (still filtered by the RLS policy above). Every
--- write happens inside a SECURITY DEFINER function running as the table owner.
+-- grants: strip everything from PUBLIC, anon and authenticated, and grant
+-- nothing back. Access goes only through the approved RPCs and the
+-- service-role boundary.
 REVOKE ALL ON TABLE public.seo_brain_link_intents FROM PUBLIC;
 REVOKE ALL ON TABLE public.seo_brain_link_intents FROM anon;
 REVOKE ALL ON TABLE public.seo_brain_link_intents FROM authenticated;
-GRANT SELECT ON TABLE public.seo_brain_link_intents TO authenticated;
 
 -- ---------------------------------------------------------------------------
 -- 2. Provenance columns. Both nullable and additive; every existing row keeps

@@ -52,33 +52,28 @@ that `Digi_SEO_Test` runs, so it is the only faithful local option.
 
 ## 2. `supabase init`
 
-The local CLI needs a `supabase/config.toml` naming the project and its
-local ports. This repository does **not** commit `config.toml` (checked via
-`git log --all` — no such file has ever existed in this repo's history), so
-each session creates its own:
-
-```bash
-supabase init --workdir .
-```
-
-This generates `supabase/config.toml` (a fresh `project_id` derived from the
-directory name) plus `supabase/.gitignore`. **Do not commit either file** —
-they are local CLI state, consistent with this repo never tracking them.
-(`project_id` is only a Docker container-naming label, not a security boundary.)
+`supabase/config.toml` is now committed, for one reason only: it pins
+`[functions.seo-module-api] verify_jwt = false` (see the comment in the file and
+`SEO_BRAIN_MODULE_INTERFACE.md` §9.4). Everything else in it is left at the CLI
+defaults, so **do not run `supabase init`** (it refuses because the file
+exists, and `--force` would overwrite the pin). With no `project_id` set, the
+CLI derives one from the directory name, exactly as a fresh `supabase init`
+did. (`project_id` is only a Docker container-naming label, not a security
+boundary.)
 
 If you are attaching to an **already-running** stack from a previous
 session (Docker containers persist independently of the worktree directory
 that started them — a prior worktree may since have been deleted while its
-containers keep running), edit the generated `project_id` in
-`supabase/config.toml` to match the running container set's compose project
-name:
+containers keep running), add a `project_id` line at the top of
+`supabase/config.toml` matching the running container set's compose project
+name, and **do not commit that local edit**:
 
 ```bash
 docker ps --format '{{.Names}}'   # e.g. supabase_db_wt-recommendation-stage1
 # -> project_id is the suffix after "supabase_db_", e.g. "wt-recommendation-stage1"
 ```
 
-Then edit `supabase/config.toml`'s `project_id = "..."` line to match, and
+With `project_id = "..."` set to match,
 `supabase status` should return that stack's URLs/keys without starting new
 containers.
 
