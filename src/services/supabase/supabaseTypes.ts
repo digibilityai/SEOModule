@@ -118,6 +118,14 @@ export const SEO_RPCS = {
   // an authenticated user (`supabase.rpc()`). Used by Phase 16B's route guard to
   // gate `/seo/admin-preview`; the RLS policies remain the authoritative check.
   seoIsGlobalAdmin: "seo_is_global_admin",
+  // D-026A SEO PR-1 (migration `20260921120000`): the customer's own browser
+  // calls this directly over the ordinary anon/authenticated client, exactly
+  // like the two helpers above. GRANT EXECUTE TO anon, authenticated. Resolves
+  // cases A-D for a Brain-issued launch code; never gated by the machine
+  // secret (a browser cannot hold it). See
+  // supabase/migrations/20260921120000_seo_brain_link_intents.sql and
+  // SEO_BRAIN_MODULE_INTERFACE.md section 9.
+  seoBrainLinkIntentRedeem: "seo_brain_link_intent_redeem",
   runAudit: "seo_run_audit",
   supersedeRecommendation: "seo_supersede_recommendation",
   approvalTransition: "seo_approval_transition",

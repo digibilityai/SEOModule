@@ -7,6 +7,10 @@ import { getDigibilityAppUrl } from "@/config/runtimeConfig";
 export const SEO_LOGIN_PATH = "/seo/login";
 export const SEO_BRIDGE_PATH = "/seo/auth/bridge";
 export const SEO_LOGOUT_PATH = "/seo/auth/logout";
+// D-026A SEO PR-1 continuation: SEO-owned identity step the browser lands on
+// with an opaque Brain-issued launchCode. Distinct from SEO_BRIDGE_PATH, which
+// is the unrelated Digibility Core SSO bridge.
+export const SEO_BRAIN_CONNECT_PATH = "/seo/auth/brain-connect";
 export const SEO_DEFAULT_ROUTE = "/seo/dashboard";
 export const SEO_SETUP_WORKSPACE_ROUTE = "/seo/onboarding";
 export const SEO_SETUP_WEBSITE_ROUTE = "/seo/websites";
@@ -33,7 +37,8 @@ export function sanitizeReturnPath(raw: string | null | undefined): string | nul
   if (
     basePath === SEO_LOGIN_PATH ||
     basePath === SEO_BRIDGE_PATH ||
-    basePath === SEO_LOGOUT_PATH
+    basePath === SEO_LOGOUT_PATH ||
+    basePath === SEO_BRAIN_CONNECT_PATH
   ) {
     return null;
   }

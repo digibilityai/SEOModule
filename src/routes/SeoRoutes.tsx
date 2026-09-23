@@ -3,6 +3,7 @@ import { Layout } from "@/components/layout/Layout";
 import { ProtectedRoute } from "@/routes/ProtectedRoute";
 import { SeoLoginPage } from "@/pages/seo/SeoLoginPage";
 import { SeoBridgePage } from "@/pages/seo/SeoBridgePage";
+import { SeoBrainConnectPage } from "@/pages/seo/SeoBrainConnectPage";
 import { SeoLogoutPage } from "@/pages/seo/SeoLogoutPage";
 import { SeoDashboardPage } from "@/pages/seo/SeoDashboardPage";
 import { WebsitesPage } from "@/pages/seo/WebsitesPage";
@@ -56,6 +57,7 @@ export function SeoRoutes() {
       {/* Public, chromeless */}
       <Route path="/seo/login" element={<SeoLoginPage />} />
       <Route path="/seo/auth/bridge" element={<SeoBridgePage />} />
+      <Route path="/seo/auth/brain-connect" element={<SeoBrainConnectPage />} />
       <Route path="/seo/auth/logout" element={<SeoLogoutPage />} />
 
       {/* Public Help Center — AUTHENTICATION-FREE, outside the /seo/* protected
