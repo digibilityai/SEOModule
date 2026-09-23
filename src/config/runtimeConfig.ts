@@ -14,6 +14,7 @@ type SeoRuntimeConfig = {
   DIGIBILITY_APP_URL?: string;
   DIGIBILITY_BRIDGE_URL?: string;
   DIGIBILITY_ANON_KEY?: string;
+  BRAIN_APP_URL?: string;
 };
 
 declare global {
@@ -68,6 +69,14 @@ export function getDigibilityBridgeUrl(): string {
 
 export function getDigibilityAnonKey(): string {
   return readConfigValue("DIGIBILITY_ANON_KEY", "VITE_DIGIBILITY_ANON_KEY");
+}
+
+/** Digi Brain's own app origin — where the D-026A link-intent journey returns
+ * the customer once SEO-side identity establishment completes. Same
+ * config pattern as DIGIBILITY_APP_URL; a separate value because Brain and
+ * Digibility Core are different upstream apps. */
+export function getBrainAppUrl(): string {
+  return readConfigValue("BRAIN_APP_URL", "VITE_BRAIN_APP_URL").replace(/\/+$/, "");
 }
 
 /** Cross-project SSO is opt-in so existing TEST/local password auth remains
