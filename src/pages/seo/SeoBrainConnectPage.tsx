@@ -23,6 +23,7 @@ import {
   redeemBrainLinkIntent,
   type BrainLinkIntentRedemption,
 } from "@/services/supabase/seoBrainLinkIntentService";
+import { stripLaunchCodeFromUrl } from "./brainConnectUrl";
 
 type ViewState =
   | { step: "working" }
@@ -51,13 +52,24 @@ function returnToBrain(): void {
 
 export function SeoBrainConnectPage() {
   const [searchParams] = useSearchParams();
-  const launchCode = (searchParams.get("launchCode") ?? "").trim();
+  // Captured once, into component memory only, and kept for the whole flow
+  // (initial redemption, case B confirmation, case A provisioning). It is
+  // deliberately NOT read from `searchParams` again, because the effect below
+  // removes it from the visible URL. It is never persisted to storage, so a
+  // refresh after that removal restarts from Marketing Brain rather than
+  // resuming an in-progress flow.
+  const [launchCode] = useState(() => (searchParams.get("launchCode") ?? "").trim());
   const started = useRef(false);
   const [state, setState] = useState<ViewState>({ step: "working" });
 
   useEffect(() => {
     if (started.current) return;
     started.current = true;
+
+    // The one-time code is safely in component memory by now, so drop it from
+    // the address bar and from this history entry. `replaceState` rewrites the
+    // current entry in place: no navigation, no reload, no remount.
+    stripLaunchCodeFromUrl(typeof window === "undefined" ? undefined : window);
 
     if (!launchCode) {
       setState({ step: "blocked", message: "This connection link is missing its one-time code." });
