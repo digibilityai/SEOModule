@@ -22,6 +22,10 @@ substitutions:
   _DIGIBILITY_APP_URL: https://testapp.digibility.ai
   # Digibility TEST Core (testapp) Edge Function — not DevApp
   _DIGIBILITY_BRIDGE_URL: https://szxdfmcexafiwlgestpl.supabase.co/functions/v1/seo-bridge
+  # Digi Brain beta origin — the D-026A return destination for
+  # /seo/auth/brain-connect. Origin only: getBrainAppUrl() strips any trailing
+  # slash and the value is assigned verbatim, so no path may be appended.
+  _BRAIN_APP_URL: https://beta.digibility.ai
   _RUNTIME_SA: digi-frontend-runner@digibility-frontend.iam.gserviceaccount.com
 
 options:
@@ -76,7 +80,7 @@ steps:
       - --max-instances
       - "3"
       - --set-env-vars
-      - SEO_DATA_MODE=supabase,DIGIBILITY_APP_URL=${_DIGIBILITY_APP_URL},DIGIBILITY_BRIDGE_URL=${_DIGIBILITY_BRIDGE_URL}
+      - SEO_DATA_MODE=supabase,DIGIBILITY_APP_URL=${_DIGIBILITY_APP_URL},DIGIBILITY_BRIDGE_URL=${_DIGIBILITY_BRIDGE_URL},BRAIN_APP_URL=${_BRAIN_APP_URL}
       - --set-secrets
       - SUPABASE_URL=seo-test-supabase-url:latest,SUPABASE_ANON_KEY=seo-test-supabase-anon-key:latest,DIGIBILITY_ANON_KEY=seo-test-digibility-anon-key:latest
     waitFor:
