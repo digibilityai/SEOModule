@@ -126,6 +126,17 @@ export const SEO_RPCS = {
   // supabase/migrations/20260921120000_seo_brain_link_intents.sql and
   // SEO_BRAIN_MODULE_INTERFACE.md section 9.
   seoBrainLinkIntentRedeem: "seo_brain_link_intent_redeem",
+  // D-026A application-linking completion (migration `20260925120000`):
+  // authenticated only, called once a genuine SEO session exists for a
+  // redeemed intent. Resolves (or, only when nothing matches, creates) the
+  // single website matching the intent's normalized host and ensures DNS
+  // ownership verification is at least underway; never lets a customer pick a
+  // website. See supabase/migrations/20260925120000_seo_brain_link_completion.sql.
+  seoBrainResolveLinkWebsite: "seo_brain_resolve_link_website",
+  // D-026A SEO PR-1 (migration `20260921120000`): authenticated only, spends a
+  // redeemed intent on exactly one verified website, creating the real Brain
+  // <-> SEO website link. See SEO_BRAIN_MODULE_INTERFACE.md section 9.5.
+  seoBrainLinkAuthorize: "seo_brain_link_authorize",
   runAudit: "seo_run_audit",
   supersedeRecommendation: "seo_supersede_recommendation",
   approvalTransition: "seo_approval_transition",

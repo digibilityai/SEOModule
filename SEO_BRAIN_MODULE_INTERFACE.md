@@ -1042,14 +1042,20 @@ is unchanged.
 
 ### 9.6 Deferred, honestly
 
-* **No SEO UI.** Every function above is backend only. A later change wires
-  the SEO frontend to `redeem`, the confirmation prompt, and `authorize`.
+* **SEO UI, since Stage 2 (superseded).** `SeoBrainConnectPage.tsx` (Stage 2,
+  PR #3 follow-up) wires the SEO frontend to `redeem` and the case B
+  confirmation prompt. Section 9.7 below wires it the rest of the way, through
+  `resolveLinkWebsite` and `authorize`, so a case A/B/D customer actually
+  returns to Brain genuinely connected rather than merely identified.
 * **Fixed Brain return contract.** Section-level agreement on the exact
   allow-listed Brain origin/path the customer returns to after `authorize` is
-  a cross-repo detail for that later UI change, not built here.
-* **Rate limiting (N10, deferred nonblocking).** `redeem` and `provision` have
-  no request-rate limiting of their own yet. The launch code's entropy and short
-  window bound guessing; they do not bound request volume.
+  a cross-repo detail, not built here. `SeoBrainConnectPage` currently returns
+  to `getBrainAppUrl()` unconditionally on success, with no Brain-side status
+  signal beyond that navigation.
+* **Rate limiting (N10, deferred nonblocking).** `redeem`, `provision` and
+  `continue` (9.7) have no request-rate limiting of their own yet. The launch
+  code's entropy and short window bound guessing; they do not bound request
+  volume.
 * **Stale verification outside this path (N11, deferred nonblocking).** The
   pre-existing `analyse.ownership_verification` reads verification status
   without the current-host evidence check added to `authorize`. Not changed here.
@@ -1061,3 +1067,81 @@ is unchanged.
   exercises every case B path with that one user, then frees it again. The
   Auth user creation and magic link token of case A are covered by
   `link-intent.test.ts` with a mocked Admin API, not by SQL.
+
+### 9.7 D-026A completion: continuation, website resolution and authorization
+
+**Status: IMPLEMENTED, NOT MERGED, NOT DEPLOYED, NOT ACCEPTED.** Migration
+`20260925120000_seo_brain_link_completion.sql` has not been applied to any
+Supabase project. Closes the gap left after 9.1-9.5: identity could be
+established for cases A, B and D, but nothing yet resolved a website or spent
+the redeemed intent on `authorize`, so a case D customer in particular could
+be shown a false "connected" state after nothing more than an identity
+mapping. `SeoBrainConnectPage.tsx` now drives this to completion for every
+case; neither new RPC touches `seo_brain_link_authorize` itself.
+
+**`seo_brain_link_intent_continue_by_code(p_launch_code)`, service_role
+only.** Case D redeems the intent server-side unconditionally (9.3), but the
+browser making that call may have no live session for the durably-mapped user
+at all (a returning customer, second visit from Brain). This is the trusted
+lookup the new `link-intent/continue` Edge Function route uses to mint a
+magic-link sign-in for that SAME already-mapped user, the same shape as
+`provision` mints one for a freshly created case A user. It creates nothing:
+no user, no module access grant, no actor mapping, all three already exist,
+and it resolves only when the mapping backing the redemption is `active` and
+carries a non-NULL `link_method` (i.e. it was itself created through the
+Brain-intent consent flow, never a pre-existing operator-bootstrap mapping).
+**Live-session mismatch is an application-side check, not a database one:**
+this RPC carries no browser session at all (service_role, launch code only),
+so `SeoBrainConnectPage` (`decideCaseDSessionAction`) compares its own current
+session, if any, against the redeem response's `seoUserId` BEFORE ever calling
+`continue`, and refuses outright on a mismatch rather than letting `verifyOtp`
+silently sign the browser out of one session and into another.
+`seo_brain_link_authorize` re-checks the signed-in caller against
+`redeemed_seo_user_id` regardless, as defense in depth.
+
+**`seo_brain_resolve_link_website(p_intent_id)`, authenticated only.** Called
+once a genuine SEO session exists for the redeemed intent's user (case
+A/B immediately; case D once continuation, if needed, clears). Mirrors
+`authorize`'s own intent-level guards (redeemed, exact caller, consent
+window, active actor mapping, SEO module access), then:
+
+1. Looks for an existing, active website whose normalized host matches the
+   intent's, in a workspace the caller owns or administers. More than one is
+   `website_ambiguous`: refused, never guessed.
+2. None found: resolves exactly one workspace to create it in (the caller's
+   own, if exactly one; more than one is `workspace_ambiguous`; none creates
+   one with the caller as owner, mirroring the existing
+   `seo_workspaces_insert` / owner-bootstrap trigger convention), then creates
+   exactly one `seo_websites` row for the intent's host. No customer selector
+   anywhere in this path.
+3. Either way, calls the existing, unchanged
+   `seo_ownership_verification_initiate` so DNS ownership verification is at
+   least underway (idempotent when already pending or verified), and reports
+   whether the CURRENT host is already genuinely verified, using the same
+   stricter check `authorize` itself applies (both the verification's stored
+   host and its `website_url` snapshot must still normalize to the intent's
+   host). This is a report, never an authorization decision.
+
+**DNS two-visit behavior.** First visit: identity is established, a website is
+resolved (or created) and DNS verification is initiated; `SeoBrainConnectPage`
+shows a pending-verification screen and the customer returns to Brain without
+`authorize` ever being called, and without being told they are connected.
+Later, a fresh link intent from Brain (case D, once the actor mapping is
+durable) resolves the SAME now-verified website and calls `authorize` for
+real. The ~30 minute consent window is unchanged and is not extended to
+accommodate DNS propagation; a customer who returns after it closes starts a
+fresh intent from Brain, exactly as case D already assumes.
+
+**A resolved identity alone is never "connected."** `SeoBrainConnectPage`
+only reaches its success screen after `seo_brain_link_authorize` itself
+returns `resolution: "resolved"`. Every other resolution from either new RPC,
+and any non-`resolved` outcome from `authorize`, renders as a blocked or
+pending state with a safe, non-internal message
+(`describeLinkingFailure` in `SeoBrainConnectPage.tsx`).
+
+**No `session_continued_at` column.** Considered and not added: case D
+continuation re-derives its own eligibility from existing columns on every
+call (`status`, `redemption_outcome`, `consent_expires_at`, the actor
+mapping's own `link_status`/`link_method`), so repeating it within the
+existing consent window is already safe and idempotent. See the migration's
+own header for the full reasoning.
