@@ -10,8 +10,8 @@ WORKDIR /app
 ENV NODE_ENV=production
 # tsx runtime for TS execution without a separate build step.
 COPY --from=deps /app/node_modules ./node_modules
-RUN npm install --no-save tsx@^4.19.2 typescript@^5.6.0
 COPY package.json tsconfig.json ./
+RUN npm install --no-save tsx@^4.19.2 typescript@^5.6.0
 COPY src ./src
 # Non-root runtime user.
 USER node
