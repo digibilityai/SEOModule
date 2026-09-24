@@ -3,7 +3,7 @@
 FROM node:22-slim AS deps
 WORKDIR /app
 COPY package.json package-lock.json* ./
-RUN npm ci --omit=dev || npm install --omit=dev
+RUN npm ci --include=dev
 
 FROM node:22-slim
 WORKDIR /app
@@ -11,7 +11,6 @@ ENV NODE_ENV=production
 # tsx runtime for TS execution without a separate build step.
 COPY --from=deps /app/node_modules ./node_modules
 COPY package.json tsconfig.json ./
-RUN npm install --no-save tsx@^4.19.2 typescript@^5.6.0
 COPY src ./src
 # Non-root runtime user.
 USER node
