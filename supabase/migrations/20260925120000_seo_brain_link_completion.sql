@@ -29,15 +29,40 @@
 -- website link; these two functions only get a genuine session and a genuine,
 -- verified-or-verification-pending website in front of it.
 --
--- WHY NO session_continued_at COLUMN. Case D continuation needs no new mutable
--- state: seo_brain_link_intent_continue_by_code re-derives eligibility from
--- columns that already exist (status, redemption_outcome, consent_expires_at,
--- the actor mapping's own link_status/link_method) on every call, so repeating
--- it within the existing ~30 minute consent window is safe and idempotent:
--- it only ever mints another magic link for the same already-mapped user. A
--- provenance timestamp was considered and is not required by anything in this
--- design; omitted per the smallest-implementation rule.
+-- CASE D CONTINUATION IS SHORT-LIVED AND SINGLE-USE (post-review correction).
+-- Bare possession of a case D launch code must not be able to mint a fresh
+-- authenticated session repeatedly across the whole ~30 minute
+-- consent_expires_at window used later for website resolution/authorization;
+-- that window exists for THAT decision, not for session establishment. The
+-- legitimate frontend continuation happens immediately after redeem, so
+-- eligibility instead reuses redemption_expires_at, the SAME short (~120
+-- second), already-established primitive seo_brain_link_intent_pending_by_code
+-- uses for the analogous case A provisioning step, computed once at issuance
+-- and therefore already elapsing well before consent_expires_at ever would.
+-- consent_expires_at itself is untouched and still governs resolution/
+-- authorization below, unchanged.
+--
+-- Single-use is the additive column continuation_consumed_at (nullable
+-- timestamptz on seo_brain_link_intents): the function is now a single atomic
+-- `UPDATE ... WHERE continuation_consumed_at IS NULL ... RETURNING`, the same
+-- claim-a-row-once pattern seo_brain_link_intent_redeem already uses for
+-- `status = 'issued'`. Postgres row-level locking on that UPDATE is what makes
+-- two concurrent continuation attempts for the same code safe: only one can
+-- ever observe continuation_consumed_at IS NULL and commit first; the other's
+-- UPDATE affects zero rows and the function returns NULL. No new token/session
+-- infrastructure; no change to status, redemption_outcome or consent_expires_at.
 -- =============================================================================
+
+-- ---------------------------------------------------------------------------
+-- 0. continuation_consumed_at. Additive, nullable. The single new bit of
+--    mutable state case D continuation needs: once a continuation succeeds,
+--    this is stamped in the SAME atomic UPDATE that reads eligibility, so the
+--    launch code can never mint a second session. NULL for every intent that
+--    has never had a successful continuation (which is every case A/B row,
+--    forever, since only case D ever calls this function).
+-- ---------------------------------------------------------------------------
+ALTER TABLE public.seo_brain_link_intents
+  ADD COLUMN IF NOT EXISTS continuation_consumed_at timestamptz;
 
 -- ---------------------------------------------------------------------------
 -- 1. seo_brain_link_intent_continue_by_code. service_role only, called by the
@@ -48,36 +73,72 @@
 --    this case D redemption is 'active' AND carries a non-NULL link_method,
 --    i.e. it was itself created through the Brain-intent consent flow
 --    (brain_intent_new or brain_intent_confirmed), never a pre-existing
---    operator-bootstrap mapping with no recorded consent trail. Returns NULL
---    for anything else, so the Edge Function has exactly one place to fail
---    closed. Live-session mismatch is NOT checked here: this call carries no
---    browser session at all (service_role, launch code only); it is the
---    caller's (SeoBrainConnectPage's) job to compare its own current session,
---    if any, against `seoUserId` before ever invoking this, and refuse rather
---    than call it on a mismatch; seo_brain_link_authorize itself re-checks the
---    signed-in caller against `redeemed_seo_user_id` regardless.
+--    operator-bootstrap mapping with no recorded consent trail.
+--
+--    SHORT-LIVED: eligibility is gated on redemption_expires_at (the same
+--    ~120 second, issuance-time primitive seo_brain_link_intent_pending_by_code
+--    already uses for case A), never the later ~30 minute consent_expires_at,
+--    which stays reserved for resolution/authorization below and is not read
+--    here at all.
+--
+--    SINGLE-USE and concurrency-safe: the eligibility check and the
+--    consumption are ONE atomic `UPDATE ... WHERE continuation_consumed_at IS
+--    NULL ... RETURNING`, not a SELECT. Postgres row-level locking on that
+--    UPDATE means at most one caller can ever observe
+--    continuation_consumed_at IS NULL and win; every other concurrent or
+--    later call, including a genuine retry with the same code, affects zero
+--    rows and this returns NULL. status, redemption_outcome and
+--    consent_expires_at are read but never written here.
+--
+--    Returns NULL for anything not currently eligible, so the Edge Function
+--    has exactly one place to fail closed, without revealing which
+--    precondition failed. Live-session mismatch is NOT checked here: this
+--    call carries no browser session at all (service_role, launch code only);
+--    it is the caller's (SeoBrainConnectPage's) job to compare its own
+--    current session, if any, against `seoUserId` before ever invoking this,
+--    and refuse rather than call it on a mismatch; seo_brain_link_authorize
+--    itself re-checks the signed-in caller against `redeemed_seo_user_id`
+--    regardless.
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.seo_brain_link_intent_continue_by_code(p_launch_code text)
 RETURNS jsonb
-LANGUAGE sql
-STABLE
+LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public, extensions
 AS $$
-  SELECT jsonb_build_object('intentId', i.id, 'seoUserId', i.redeemed_seo_user_id, 'email', u.email)
-  FROM public.seo_brain_link_intents i
-  JOIN auth.users u ON u.id = i.redeemed_seo_user_id
-  JOIN public.seo_brain_actor_links l
-    ON l.brain_actor_id = i.brain_actor_id
-   AND l.seo_user_id = i.redeemed_seo_user_id
-   AND l.link_status = 'active'
-   AND l.link_method IS NOT NULL
+DECLARE
+  v_intent_id   uuid;
+  v_seo_user_id uuid;
+  v_email       text;
+BEGIN
+  UPDATE public.seo_brain_link_intents i
+  SET continuation_consumed_at = now()
   WHERE btrim(coalesce(p_launch_code, '')) <> ''
     AND i.launch_code_hash = encode(digest(p_launch_code, 'sha256'), 'hex')
     AND i.status = 'redeemed'
     AND i.redemption_outcome = 'case_d_existing_mapping'
-    AND i.consent_expires_at IS NOT NULL
-    AND now() <= i.consent_expires_at;
+    AND i.continuation_consumed_at IS NULL
+    AND now() <= i.redemption_expires_at
+    AND EXISTS (
+      SELECT 1 FROM public.seo_brain_actor_links l
+      WHERE l.brain_actor_id = i.brain_actor_id
+        AND l.seo_user_id = i.redeemed_seo_user_id
+        AND l.link_status = 'active'
+        AND l.link_method IS NOT NULL
+    )
+    AND EXISTS (
+      SELECT 1 FROM auth.users u WHERE u.id = i.redeemed_seo_user_id
+    )
+  RETURNING i.id, i.redeemed_seo_user_id INTO v_intent_id, v_seo_user_id;
+
+  IF NOT FOUND THEN
+    RETURN NULL;
+  END IF;
+
+  SELECT u.email INTO v_email FROM auth.users u WHERE u.id = v_seo_user_id;
+
+  RETURN jsonb_build_object('intentId', v_intent_id, 'seoUserId', v_seo_user_id, 'email', v_email);
+END;
 $$;
 
 REVOKE ALL ON FUNCTION public.seo_brain_link_intent_continue_by_code(text) FROM PUBLIC;

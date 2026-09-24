@@ -1090,6 +1090,23 @@ no user, no module access grant, no actor mapping, all three already exist,
 and it resolves only when the mapping backing the redemption is `active` and
 carries a non-NULL `link_method` (i.e. it was itself created through the
 Brain-intent consent flow, never a pre-existing operator-bootstrap mapping).
+
+**Short-lived and single-use (post-review correction).** Bare possession of
+the launch code no longer mints a session repeatedly across the whole
+~30 minute `consent_expires_at` window that resolution/authorization use
+later — that window is for that later decision, not for session
+establishment. Eligibility instead reuses `redemption_expires_at`, the same
+short (~120 second), already-established primitive
+`seo_brain_link_intent_pending_by_code` uses for case A, matching how soon
+after redeem the legitimate frontend continuation actually happens.
+Consumption is single-use: the eligibility check and the claim are one atomic
+`UPDATE ... WHERE continuation_consumed_at IS NULL ... RETURNING` (the
+additive `continuation_consumed_at` column), the same row-claim pattern
+`seo_brain_link_intent_redeem` already uses for `status = 'issued'`, so two
+concurrent continuation attempts for the same code can never both succeed.
+`consent_expires_at` is untouched and still governs resolution/authorization
+below, unchanged.
+
 **Live-session mismatch is an application-side check, not a database one:**
 this RPC carries no browser session at all (service_role, launch code only),
 so `SeoBrainConnectPage` (`decideCaseDSessionAction`) compares its own current
@@ -1139,9 +1156,12 @@ and any non-`resolved` outcome from `authorize`, renders as a blocked or
 pending state with a safe, non-internal message
 (`describeLinkingFailure` in `SeoBrainConnectPage.tsx`).
 
-**No `session_continued_at` column.** Considered and not added: case D
-continuation re-derives its own eligibility from existing columns on every
-call (`status`, `redemption_outcome`, `consent_expires_at`, the actor
-mapping's own `link_status`/`link_method`), so repeating it within the
-existing consent window is already safe and idempotent. See the migration's
-own header for the full reasoning.
+**`continuation_consumed_at` column.** Additive, nullable timestamptz on
+`seo_brain_link_intents`, added by the post-review correction above. NULL for
+every case A/B row and for a case D row that has never had a successful
+continuation; stamped exactly once, atomically with the eligibility read, by
+the first (and only) continuation that succeeds. See the migration's own
+header for the full reasoning, including why this replaced the original
+"no new column needed" design once independent review found the original
+~30 minute `consent_expires_at` window too broad for repeated session
+establishment.
