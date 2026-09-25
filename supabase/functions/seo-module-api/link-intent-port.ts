@@ -97,6 +97,19 @@ export function createSupabaseLinkIntentDataPort(caller: RpcCaller): LinkIntentD
         seoUserId: typeof data.seoUserId === "string" ? data.seoUserId : undefined,
       };
     },
+
+    async continuationByCode(launchCode: string) {
+      const data = await callRpc(caller, "seo_brain_link_intent_continue_by_code", {
+        p_launch_code: launchCode,
+      });
+      if (typeof data !== "object" || data === null) return null;
+      const record = data as Record<string, unknown>;
+      return typeof record.intentId === "string" &&
+        typeof record.seoUserId === "string" &&
+        typeof record.email === "string"
+        ? { intentId: record.intentId, seoUserId: record.seoUserId, email: record.email }
+        : null;
+    },
   };
 }
 

@@ -32,6 +32,9 @@ function deps(): LinkIntentDeps & { log: (event: Record<string, unknown>) => voi
     async finalizeCaseA(intentId, seoUserId) {
       return { resolution: "resolved", intentId, seoUserId };
     },
+    async continuationByCode() {
+      return { intentId: "intent-1", seoUserId: "mapped-user-1", email: "customer@example.com" };
+    },
   };
   const admin: AdminAuthPort = {
     async createPasswordlessUser() {
@@ -51,6 +54,7 @@ describe("linkIntentPathFromUrl", () => {
   it.each([
     [`${BASE}/link-intent/create`, "create"],
     [`${BASE}/link-intent/provision`, "provision"],
+    [`${BASE}/link-intent/continue`, "continue"],
     [`${BASE}/analyse`, null],
     [`${BASE}/link-intent/unknown`, null],
     [`${BASE}/link-intent`, null],
@@ -126,6 +130,50 @@ describe("link-intent/provision", () => {
     await expect(response.json()).resolves.toEqual({
       error: { code: "invalid_request", message: expect.any(String) },
     });
+  });
+});
+
+describe("link-intent/continue", () => {
+  it("is reachable with no machine secret at all, because a browser cannot hold one", async () => {
+    const response = await serveLinkIntentRequest(post("continue", { launchCode: "code-1" }), "continue", config, deps());
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      intentId: "intent-1",
+      tokenHash: "hashed-token-1",
+      otpType: "magiclink",
+    });
+  });
+
+  it("refuses not_continuable as a 409 when the launch code is not eligible", async () => {
+    const dependencies = deps();
+    dependencies.db.continuationByCode = async () => null;
+    const response = await serveLinkIntentRequest(post("continue", { launchCode: "code-1" }), "continue", config, dependencies);
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      error: { code: "not_continuable", message: expect.any(String) },
+    });
+  });
+
+  it("allows a configured SEO origin, same as provision", async () => {
+    const response = await serveLinkIntentRequest(
+      post("continue", { launchCode: "code-1" }, { origin: ORIGIN }),
+      "continue",
+      config,
+      deps(),
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("access-control-allow-origin")).toBe(ORIGIN);
+  });
+
+  it("refuses an origin outside the allow-list, same as provision", async () => {
+    const response = await serveLinkIntentRequest(
+      post("continue", { launchCode: "code-1" }, { origin: "https://evil.example" }),
+      "continue",
+      config,
+      deps(),
+    );
+    expect(response.status).toBe(403);
+    expect(response.headers.get("access-control-allow-origin")).toBeNull();
   });
 });
 

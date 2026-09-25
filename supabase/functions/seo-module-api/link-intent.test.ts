@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   LinkIntentError,
+  handleContinueCaseD,
   handleCreateLinkIntent,
   handleProvisionCaseA,
   validateCreateLinkIntentRequest,
@@ -23,6 +24,7 @@ type FakeDeps = LinkIntentDeps & {
   createCalls: unknown[];
   pendingCalls: string[];
   finalizeCalls: Array<{ intentId: string; seoUserId: string }>;
+  continuationCalls: string[];
   createUserCalls: string[];
   linkCalls: string[];
   deleteCalls: string[];
@@ -35,6 +37,7 @@ function fakeDeps(
   const createCalls: unknown[] = [];
   const pendingCalls: string[] = [];
   const finalizeCalls: Array<{ intentId: string; seoUserId: string }> = [];
+  const continuationCalls: string[] = [];
   const createUserCalls: string[] = [];
   const linkCalls: string[] = [];
   const deleteCalls: string[] = [];
@@ -57,6 +60,10 @@ function fakeDeps(
     async finalizeCaseA(intentId, seoUserId) {
       finalizeCalls.push({ intentId, seoUserId });
       return { resolution: "resolved", intentId, seoUserId };
+    },
+    async continuationByCode(launchCode) {
+      continuationCalls.push(launchCode);
+      return { intentId: "intent-1", seoUserId: "mapped-user-1", email: "customer@example.com" };
     },
     ...overrides.db,
   };
@@ -84,6 +91,7 @@ function fakeDeps(
     createCalls,
     pendingCalls,
     finalizeCalls,
+    continuationCalls,
     createUserCalls,
     linkCalls,
     deleteCalls,
@@ -300,6 +308,51 @@ describe("handleProvisionCaseA", () => {
     });
     expect(deps.deleteCalls).toEqual(["new-user-1"]);
     expect(deps.finalizeCalls).toHaveLength(0);
+  });
+});
+
+describe("handleContinueCaseD", () => {
+  it("case D: mints a magic link for the already-mapped user and returns only sign-in material", async () => {
+    const deps = fakeDeps();
+    const result = await handleContinueCaseD({ launchCode: "code-1" }, deps);
+
+    expect(deps.continuationCalls).toEqual(["code-1"]);
+    expect(deps.linkCalls).toEqual(["customer@example.com"]);
+    // No user is created, deleted, or finalized for case D: the mapping and
+    // module access already exist.
+    expect(deps.createUserCalls).toHaveLength(0);
+    expect(deps.deleteCalls).toHaveLength(0);
+    expect(deps.finalizeCalls).toHaveLength(0);
+    expect(result).toEqual({ intentId: "intent-1", tokenHash: "hashed-token-1", otpType: "magiclink" });
+    expect(JSON.stringify(result)).not.toContain("mapped-user-1");
+    expect(JSON.stringify(result)).not.toContain("customer@example.com");
+  });
+
+  it("refuses with not_continuable when the launch code is not eligible for continuation", async () => {
+    const deps = fakeDeps({ db: { async continuationByCode() { return null; } } });
+    await expect(handleContinueCaseD({ launchCode: "code-1" }, deps)).rejects.toMatchObject({
+      code: "not_continuable",
+    });
+    expect(deps.linkCalls).toHaveLength(0);
+  });
+
+  it("refuses with continuation_failed when the magic link cannot be generated", async () => {
+    const deps = fakeDeps({
+      admin: {
+        async generateMagicLinkToken() {
+          return { error: "generateLink failed" };
+        },
+      },
+    });
+    await expect(handleContinueCaseD({ launchCode: "code-1" }, deps)).rejects.toMatchObject({
+      code: "continuation_failed",
+    });
+  });
+
+  it("rejects a missing launchCode the same way provision does", async () => {
+    const deps = fakeDeps();
+    await expect(handleContinueCaseD({}, deps)).rejects.toMatchObject({ code: "invalid_request" });
+    expect(deps.continuationCalls).toHaveLength(0);
   });
 });
 

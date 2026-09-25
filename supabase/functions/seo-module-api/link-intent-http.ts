@@ -1,5 +1,5 @@
 /**
- * Transport shell for the two link-intent HTTP paths. Deliberately separate
+ * Transport shell for the three link-intent HTTP paths. Deliberately separate
  * from http.ts: this is NOT a Contract v1 exchange (no capability key, no
  * contractVersion envelope), so it is never dispatched through
  * handleModuleRequest and can never be mistaken for one of the six declared
@@ -9,15 +9,20 @@
  * SEO_MODULE_API_SECRET check every Contract v1 exchange already uses: this is
  * still Brain server to SEO, over the existing machine trust boundary.
  *
- * link-intent/provision is NOT secret-gated. A browser cannot hold that
- * secret. Its safety is entirely in handleProvisionCaseA: it only ever acts on
- * a launch code that genuinely, currently resolves to a pending_provisioning
- * intent, and it never trusts a caller-supplied email.
+ * link-intent/provision and link-intent/continue are NOT secret-gated. A
+ * browser cannot hold that secret. provision's safety is entirely in
+ * handleProvisionCaseA: it only ever acts on a launch code that genuinely,
+ * currently resolves to a pending_provisioning intent, and it never trusts a
+ * caller-supplied email. continue's safety is the same shape, in
+ * handleContinueCaseD: it only ever acts on a launch code that genuinely,
+ * currently resolves to a redeemed case D intent backed by an active,
+ * consent-provenanced actor mapping.
  *
- * CORS exists ONLY for link-intent/provision, because the SEO browser calls it
- * directly. It uses an explicit, configured allow-list of SEO origins: never
- * "*", never a reflected arbitrary Origin, and no CORS headers at all on
- * link-intent/create, which is a server-to-server path a browser never needs.
+ * CORS exists ONLY for link-intent/provision and link-intent/continue, because
+ * the SEO browser calls those directly. It uses an explicit, configured
+ * allow-list of SEO origins: never "*", never a reflected arbitrary Origin,
+ * and no CORS headers at all on link-intent/create, which is a server-to-server
+ * path a browser never needs.
  */
 
 import { authorizeCaller, type TransportConfig } from "./http.ts";
@@ -50,9 +55,9 @@ function corsHeaders(origin: string): Record<string, string> {
   };
 }
 import { LinkIntentError, LINK_INTENT_ERROR_HTTP_STATUS, type LinkIntentDeps } from "./link-intent.ts";
-import { handleCreateLinkIntent, handleProvisionCaseA } from "./link-intent.ts";
+import { handleCreateLinkIntent, handleProvisionCaseA, handleContinueCaseD } from "./link-intent.ts";
 
-export type LinkIntentPath = "create" | "provision";
+export type LinkIntentPath = "create" | "provision" | "continue";
 
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8" };
 
@@ -72,7 +77,7 @@ export function linkIntentPathFromUrl(url: string): LinkIntentPath | null {
   const last = segments[segments.length - 1] ?? "";
   const secondLast = segments[segments.length - 2] ?? "";
   if (secondLast !== "link-intent") return null;
-  return last === "create" || last === "provision" ? (last as LinkIntentPath) : null;
+  return last === "create" || last === "provision" || last === "continue" ? (last as LinkIntentPath) : null;
 }
 
 function errorBody(code: string, message: string): string {
@@ -92,10 +97,11 @@ export async function serveLinkIntentRequest(
   config: LinkIntentTransportConfig,
   deps: LinkIntentDeps,
 ): Promise<Response> {
-  // Only provision ever answers a browser. A preflight or a request from an
-  // origin outside the allow-list is refused outright, with no CORS headers.
+  // provision and continue are the only two paths that ever answer a browser.
+  // A preflight or a request from an origin outside the allow-list is refused
+  // outright, with no CORS headers.
   let cors: Record<string, string> = {};
-  if (path === "provision") {
+  if (path === "provision" || path === "continue") {
     const requestOrigin = request.headers.get("origin");
     const allowed = originAllowed(request, config);
     if (requestOrigin !== null && allowed === null) {
@@ -129,7 +135,11 @@ export async function serveLinkIntentRequest(
     }
 
     const result =
-      path === "create" ? await handleCreateLinkIntent(body, deps) : await handleProvisionCaseA(body, deps);
+      path === "create"
+        ? await handleCreateLinkIntent(body, deps)
+        : path === "provision"
+          ? await handleProvisionCaseA(body, deps)
+          : await handleContinueCaseD(body, deps);
 
     return new Response(JSON.stringify(result), { status: 200, headers: { ...JSON_HEADERS, ...cors } });
   } catch (error) {

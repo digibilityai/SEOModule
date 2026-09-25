@@ -147,10 +147,10 @@ export async function provisionCaseA(launchCode: string): Promise<ProvisionCaseA
 }
 
 /**
- * Signs the browser in as the account `provisionCaseA` just created, using the
- * single-use magic-link token it returned. Same call as the existing
- * Digibility Core bridge (seoBridgeService.establishSeoSession) — no new
- * authentication mechanism.
+ * Signs the browser in as the account `provisionCaseA` (or, for case D,
+ * `continueCaseD`) just resolved, using the single-use magic-link token
+ * returned. Same call as the existing Digibility Core bridge
+ * (seoBridgeService.establishSeoSession), no new authentication mechanism.
  */
 export async function establishCaseASession(result: ProvisionCaseAResult): Promise<void> {
   const { error } = await supabase.auth.verifyOtp({
@@ -160,4 +160,211 @@ export async function establishCaseASession(result: ProvisionCaseAResult): Promi
   if (error) {
     throw new Error("seoBrainLinkIntentService.establishCaseASession: SEO session creation failed.");
   }
+}
+
+const CONTINUE_ERROR_MESSAGES: Record<string, string> = {
+  invalid_request: "This connection link is invalid.",
+  not_continuable: "This connection link is no longer eligible for sign-in. Please start again from Marketing Brain.",
+  continuation_failed: "We could not complete your secure sign-in. Please try again.",
+  module_unavailable: "The SEO module is temporarily unavailable.",
+};
+
+/**
+ * Case D only: POSTs to the `link-intent/continue` Edge Function route with
+ * ONLY the launch code, exactly like `provisionCaseA`. Returns the same shape
+ * `establishCaseASession` already accepts, so the frontend reuses that
+ * mechanism unchanged. Call this ONLY after confirming, via
+ * `decideCaseDSessionAction`, that the browser's current session (if any)
+ * does not already belong to a different user; this function does not make
+ * that check itself.
+ */
+export async function continueCaseD(launchCode: string): Promise<ProvisionCaseAResult> {
+  const base = getSupabaseUrl().replace(/\/+$/, "");
+  if (!base) {
+    throw new Error("seoBrainLinkIntentService.continueCaseD: Supabase is not configured.");
+  }
+  const response = await fetch(`${base}/functions/v1/seo-module-api/link-intent/continue`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      apikey: getSupabaseAnonKey(),
+    },
+    body: JSON.stringify({ launchCode }),
+  });
+  const body = (await response.json().catch(() => ({}))) as {
+    intentId?: unknown;
+    tokenHash?: unknown;
+    otpType?: unknown;
+    error?: { code?: unknown };
+  };
+  if (!response.ok) {
+    const code = typeof body.error?.code === "string" ? body.error.code : "";
+    throw new Error(CONTINUE_ERROR_MESSAGES[code] ?? "Your secure sign-in could not be completed. Please try again.");
+  }
+  if (
+    typeof body.intentId !== "string" ||
+    typeof body.tokenHash !== "string" ||
+    body.otpType !== "magiclink"
+  ) {
+    throw new Error("seoBrainLinkIntentService.continueCaseD: unrecognized continuation response.");
+  }
+  return { intentId: body.intentId, tokenHash: body.tokenHash, otpType: "magiclink" };
+}
+
+export type CaseDSessionAction = "proceed_with_current_session" | "continue_required" | "session_mismatch";
+
+/**
+ * Case D's security boundary (application side): a live session mismatch must
+ * refuse safely rather than silently switch identity. `seo_brain_link_intent_
+ * redeem` resolves case D unconditionally, ahead of whatever session state the
+ * browser happens to be in, so the browser itself must decide, BEFORE ever
+ * calling `continueCaseD` (which would sign it in as a different user via
+ * verifyOtp), whether its current session is safe to proceed with, needs
+ * replacing, or must be refused outright.
+ *
+ *   - No current session: nothing to conflict with, continuation is required.
+ *   - Current session already belongs to the mapped user: it is already the
+ *     right session; skip continuation entirely.
+ *   - Current session belongs to a DIFFERENT user: refuse. Continuing would
+ *     silently sign the browser out of its own session and into another.
+ */
+export function decideCaseDSessionAction(
+  currentUserId: string | null,
+  mappedSeoUserId: string,
+): CaseDSessionAction {
+  if (!currentUserId) return "continue_required";
+  return currentUserId === mappedSeoUserId ? "proceed_with_current_session" : "session_mismatch";
+}
+
+export type ResolveLinkWebsiteResolution =
+  | "resolved"
+  | "unauthorized"
+  | "invalid_request"
+  | "intent_not_redeemed"
+  | "identity_mismatch"
+  | "intent_expired"
+  | "actor_mapping_inactive"
+  | "website_ambiguous"
+  | "workspace_ambiguous"
+  | "conflicting_website";
+
+export interface ResolveLinkWebsiteResult {
+  resolution: ResolveLinkWebsiteResolution;
+  websiteId?: string;
+  verified?: boolean;
+}
+
+const RESOLVE_RESOLUTIONS: readonly ResolveLinkWebsiteResolution[] = [
+  "resolved",
+  "unauthorized",
+  "invalid_request",
+  "intent_not_redeemed",
+  "identity_mismatch",
+  "intent_expired",
+  "actor_mapping_inactive",
+  "website_ambiguous",
+  "workspace_ambiguous",
+  "conflicting_website",
+];
+
+/**
+ * Calls `seo_brain_resolve_link_website` directly, the same ordinary
+ * authenticated Supabase client every other customer-facing SEO RPC uses.
+ * Call this only once a genuine SEO session exists for the redeemed intent's
+ * user (case A/B immediately; case D only after `decideCaseDSessionAction`
+ * clears it).
+ */
+export async function resolveLinkWebsite(intentId: string): Promise<ResolveLinkWebsiteResult> {
+  const { data, error } = await supabase.rpc(SEO_RPCS.seoBrainResolveLinkWebsite, {
+    p_intent_id: intentId,
+  });
+  if (error) {
+    throw new Error(`seoBrainLinkIntentService.resolveLinkWebsite: ${normalizeSupabaseError(error).message}`);
+  }
+  const body = data as Record<string, unknown> | null;
+  const resolution = body?.resolution;
+  if (typeof resolution !== "string" || !RESOLVE_RESOLUTIONS.includes(resolution as ResolveLinkWebsiteResolution)) {
+    throw new Error("seoBrainLinkIntentService.resolveLinkWebsite: unrecognized resolution.");
+  }
+  return {
+    resolution: resolution as ResolveLinkWebsiteResolution,
+    websiteId: typeof body?.websiteId === "string" ? body.websiteId : undefined,
+    verified: typeof body?.verified === "boolean" ? body.verified : undefined,
+  };
+}
+
+export type LinkAuthorizationResolution =
+  | "resolved"
+  | "already_linked"
+  | "unauthorized"
+  | "invalid_request"
+  | "intent_not_redeemed"
+  | "identity_mismatch"
+  | "intent_expired"
+  | "actor_mapping_inactive"
+  | "website_not_found"
+  | "website_inactive"
+  | "host_mismatch"
+  | "ownership_not_verified"
+  | "business_host_already_linked"
+  | "website_already_linked"
+  | "conflicting_link";
+
+export interface LinkAuthorizationResult {
+  resolution: LinkAuthorizationResolution;
+  linkId?: string;
+  websiteId?: string;
+}
+
+const LINK_AUTHORIZATION_RESOLUTIONS: readonly LinkAuthorizationResolution[] = [
+  "resolved",
+  "already_linked",
+  "unauthorized",
+  "invalid_request",
+  "intent_not_redeemed",
+  "identity_mismatch",
+  "intent_expired",
+  "actor_mapping_inactive",
+  "website_not_found",
+  "website_inactive",
+  "host_mismatch",
+  "ownership_not_verified",
+  "business_host_already_linked",
+  "website_already_linked",
+  "conflicting_link",
+];
+
+/**
+ * Calls `seo_brain_link_authorize` directly. `resolution === "resolved"` is a
+ * newly-created Brain <-> SEO website link; `"already_linked"` is the same
+ * business+host+website relationship already existing and active (an
+ * idempotent repeat, e.g. the customer running Connect SEO Intelligence again
+ * for a business already genuinely connected). Both are a completed,
+ * successful connection. Every other resolution must NOT be presented to the
+ * customer as a successful connection.
+ */
+export async function authorizeLinkedWebsite(
+  intentId: string,
+  websiteId: string,
+): Promise<LinkAuthorizationResult> {
+  const { data, error } = await supabase.rpc(SEO_RPCS.seoBrainLinkAuthorize, {
+    p_intent_id: intentId,
+    p_website_id: websiteId,
+  });
+  if (error) {
+    throw new Error(`seoBrainLinkIntentService.authorizeLinkedWebsite: ${normalizeSupabaseError(error).message}`);
+  }
+  const body = data as Record<string, unknown> | null;
+  const resolution = body?.resolution;
+  if (
+    typeof resolution !== "string" ||
+    !LINK_AUTHORIZATION_RESOLUTIONS.includes(resolution as LinkAuthorizationResolution)
+  ) {
+    throw new Error("seoBrainLinkIntentService.authorizeLinkedWebsite: unrecognized resolution.");
+  }
+  return {
+    resolution: resolution as LinkAuthorizationResolution,
+    linkId: typeof body?.linkId === "string" ? body.linkId : undefined,
+    websiteId: typeof body?.websiteId === "string" ? body.websiteId : undefined,
+  };
 }

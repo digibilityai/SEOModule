@@ -12,12 +12,12 @@
  * API touch goes through the injected LinkIntentDeps, so this file has no Deno
  * dependency and is exercisable by vitest.
  *
- * Two paths only. Redemption itself (seo_brain_link_intent_redeem) and
- * authorization (seo_brain_link_authorize) are plain Postgres RPCs the
- * customer's own browser calls directly over the ordinary anon/authenticated
- * Supabase client, the same way every other customer-facing SEO RPC already
- * works. They do not go through this Edge Function at all, and are not
- * implemented here.
+ * Redemption itself (seo_brain_link_intent_redeem), website resolution
+ * (seo_brain_resolve_link_website) and authorization (seo_brain_link_authorize)
+ * are plain Postgres RPCs the customer's own browser calls directly over the
+ * ordinary anon/authenticated Supabase client, the same way every other
+ * customer-facing SEO RPC already works. They do not go through this Edge
+ * Function at all, and are not implemented here.
  *
  *   create: Brain server -> SEO. Authenticated by the caller of this module
  *     (serveModuleRequest's authorizeCaller, the same SEO_MODULE_API_SECRET
@@ -32,6 +32,13 @@
  *     caller-supplied email. Only a single-use magic-link token hash for the
  *     browser's supabase.auth.verifyOtp leaves this function; no service-role
  *     credential ever does.
+ *   continue: browser -> SEO, for the analogous case D step: minting a
+ *     magic-link sign-in for a user who is already durably mapped, but whose
+ *     browser currently has no live session for them. Not machine-secret
+ *     gated either. Its safety comes from the launch code resolving, via
+ *     seo_brain_link_intent_continue_by_code, to a real, still-consented case D
+ *     redemption backed by an active, consent-provenanced actor mapping. It
+ *     creates nothing: no new user, no new module access, no new mapping.
  */
 
 export class LinkIntentError extends Error {
@@ -41,6 +48,8 @@ export class LinkIntentError extends Error {
     | "existing_account"
     | "provisioning_failed"
     | "finalize_failed"
+    | "not_continuable"
+    | "continuation_failed"
     | "module_unavailable";
   readonly internalReason?: string;
 
@@ -58,6 +67,8 @@ export const LINK_INTENT_ERROR_HTTP_STATUS: Record<LinkIntentError["code"], numb
   existing_account: 409,
   provisioning_failed: 502,
   finalize_failed: 500,
+  not_continuable: 409,
+  continuation_failed: 502,
   module_unavailable: 503,
 };
 
@@ -102,6 +113,16 @@ export interface LinkIntentDataPort {
     intentId: string,
     seoUserId: string,
   ): Promise<{ resolution: string; intentId?: string; seoUserId?: string }>;
+  /**
+   * The one authoritative source for a case D continuation: the intent id, the
+   * already-mapped SEO user id, and that user's own auth.users email, behind a
+   * launch code that is genuinely `redeemed` via `case_d_existing_mapping`,
+   * within its consent window, and backed by an active mapping with a
+   * non-NULL link_method. Null for anything else.
+   */
+  continuationByCode(
+    launchCode: string,
+  ): Promise<{ intentId: string; seoUserId: string; email: string } | null>;
 }
 
 export interface AdminAuthPort {
@@ -300,4 +321,54 @@ export async function handleProvisionCaseA(
     await cleanup("unexpected_error");
     throw error;
   }
+}
+
+// ---------------------------------------------------------------------------
+// continue (case D only)
+// ---------------------------------------------------------------------------
+
+export interface ContinueCaseDRequest {
+  launchCode: string;
+}
+
+/** Same shape as ProvisionCaseAResult: the browser calls the same verifyOtp. */
+export interface ContinueCaseDResult {
+  intentId: string;
+  tokenHash: string;
+  otpType: "magiclink";
+}
+
+/**
+ * Case D only: the intent already redeemed server-side to an existing,
+ * durably-mapped SEO user (seo_brain_link_intent_redeem's case_d_resolved),
+ * but the calling browser may have no live session for that user at all. This
+ * mints a magic-link sign-in for the SAME already-mapped user; it creates no
+ * account, no module access grant and no actor mapping, all three of which
+ * already exist. deps.db.continuationByCode fails closed (returns null) for
+ * anything not currently eligible, including a mapping whose link_method is
+ * NULL, so this function has exactly one place to refuse.
+ */
+export async function handleContinueCaseD(
+  rawBody: unknown,
+  deps: LinkIntentDeps,
+): Promise<ContinueCaseDResult> {
+  const { launchCode } = validateProvisionRequest(rawBody);
+
+  const eligible = await deps.db.continuationByCode(launchCode);
+  if (!eligible || !isNonEmptyString(eligible.intentId) || !isNonEmptyString(eligible.email)) {
+    throw new LinkIntentError(
+      "not_continuable",
+      "This connection link is not currently eligible for continuation.",
+      "continuationByCode returned nothing",
+    );
+  }
+  const { intentId, email } = eligible;
+
+  const token = await deps.admin.generateMagicLinkToken(email);
+  if ("error" in token) {
+    deps.log?.({ event: "seo_link_intent_continue_failed", intentId, detail: token.error });
+    throw new LinkIntentError("continuation_failed", "Could not prepare the sign-in for your SEO account.", token.error);
+  }
+
+  return { intentId, tokenHash: token.tokenHash, otpType: "magiclink" };
 }
