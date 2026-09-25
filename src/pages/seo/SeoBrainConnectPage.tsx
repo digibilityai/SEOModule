@@ -368,7 +368,7 @@ async function completeLinking(intentId: string, setState: (state: ViewState) =>
     }
 
     const authorization = await authorizeLinkedWebsite(intentId, resolution.websiteId);
-    if (authorization.resolution !== "resolved") {
+    if (authorization.resolution !== "resolved" && authorization.resolution !== "already_linked") {
       setState({ step: "blocked", message: describeLinkingFailure(authorization.resolution) });
       return;
     }

@@ -832,6 +832,11 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'authorize must mark the intent link_created';
   END IF;
+
+  -- Captured for 8h (D-026A idempotent-repeat fix): the original link's id,
+  -- to prove a repeat authorize for the SAME business+host+website reuses
+  -- this exact row rather than creating another one.
+  PERFORM set_config('li.link_a', r->>'linkId', false);
 END $$;
 SELECT set_config('request.jwt.claims',     '', false),
        set_config('request.jwt.claim.sub',  '', false),
@@ -1005,13 +1010,20 @@ SELECT set_config('request.jwt.claims',     '', false),
        set_config('request.jwt.claim.sub',  '', false),
        set_config('request.jwt.claim.role', '', false);
 
--- 8h. business_host_already_linked: fixture A is already linked (business-d)
---     from Section 8a.
+-- 8h. D-026A idempotent-repeat fix: fixture A is already linked (business-d)
+--     from Section 8a, and this fresh intent resolves to the SAME business +
+--     SAME host + SAME website ('...000a') as that existing active link, so
+--     it must converge to 'already_linked' (idempotent success), reusing the
+--     exact existing link row -- never creating a duplicate. (A genuinely
+--     DIFFERENT website at this same host, for the same business, is covered
+--     separately in 8h2 below and must still refuse as
+--     business_host_already_linked, unchanged.)
 DO $$
 DECLARE
   created jsonb;
   intent_id uuid;
   r jsonb;
+  v_count integer;
 BEGIN
   created := public.seo_brain_create_link_intent(
     current_setting('li.actor_d'), 'd-case-5@example.test', 'LINKINTENT-VERIFY-biz-d', 'linkintent-verify-a.test');
@@ -1024,8 +1036,109 @@ BEGIN
   r := public.seo_brain_link_authorize(intent_id, '11000000-0000-4000-8000-00000000000a');
   RESET ROLE;
 
+  IF r->>'resolution' <> 'already_linked' THEN
+    RAISE EXCEPTION 'an identical repeat (same business+host+website) must converge to already_linked, got %', r;
+  END IF;
+  IF r->>'linkId' <> current_setting('li.link_a') THEN
+    RAISE EXCEPTION '8h: already_linked must return the EXISTING link id (%), got %', current_setting('li.link_a'), r;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM public.seo_brain_link_intents
+    WHERE id = intent_id AND status = 'link_created'
+      AND consumed_website_id = '11000000-0000-4000-8000-00000000000a'
+  ) THEN
+    RAISE EXCEPTION '8h: the redeemed intent must still be marked link_created on the idempotent path';
+  END IF;
+
+  SELECT count(*) INTO v_count
+  FROM public.seo_brain_website_links
+  WHERE business_id = 'LINKINTENT-VERIFY-biz-d'
+    AND website_id = '11000000-0000-4000-8000-00000000000a'
+    AND link_status = 'active';
+  IF v_count <> 1 THEN
+    RAISE EXCEPTION '8h: exactly one active link row must exist (no duplicate insert), found %', v_count;
+  END IF;
+END $$;
+SELECT set_config('request.jwt.claims',     '', false),
+       set_config('request.jwt.claim.sub',  '', false),
+       set_config('request.jwt.claim.role', '', false);
+
+-- 8h2. D-026A idempotent-repeat fix, negative control: SAME business + SAME
+--      host but a DIFFERENT website (a disposable second website row, '...a2',
+--      created just for this test at the same host as fixture A) must still
+--      refuse as business_host_already_linked; the idempotent short-circuit
+--      must only ever fire when the existing link's website_id exactly
+--      matches the one being requested.
+DO $$
+DECLARE
+  created jsonb;
+  intent_id uuid;
+  r jsonb;
+BEGIN
+  created := public.seo_brain_create_link_intent(
+    current_setting('li.actor_d'), 'd-case-6@example.test', 'LINKINTENT-VERIFY-biz-d', 'linkintent-verify-a.test');
+  r := public.seo_brain_link_intent_redeem(created->>'launchCode', false);
+  intent_id := (r->>'intentId')::uuid;
+
+  -- A second, disposable website in the SAME fixture workspace. Its
+  -- website_url has a path suffix (distinct from fixture A's exact
+  -- website_url, so it doesn't collide with the seo_websites
+  -- UNIQUE(workspace_id, website_url) constraint), but seo_brain_normalize_host
+  -- strips path/query/fragment, so it normalizes to the SAME host
+  -- ('linkintent-verify-a.test') as fixture A -- the only thing that differs
+  -- from 8h is that this is a DIFFERENT website row.
+  INSERT INTO public.seo_websites (id, workspace_id, website_url, website_name, business_name, is_active)
+  VALUES ('11000000-0000-4000-8000-0000000000a2', '11000000-0000-4000-8000-000000000001',
+          'https://linkintent-verify-a.test/second', 'Fixture A2, disposable duplicate host', 'Fixture', true);
+  INSERT INTO public.seo_ownership_verifications
+    (workspace_id, website_id, website_url, verification_host, method, status, challenge_token, verified_at, last_checked_at)
+  VALUES
+    ('11000000-0000-4000-8000-000000000001', '11000000-0000-4000-8000-0000000000a2',
+     'https://linkintent-verify-a.test/second', 'linkintent-verify-a.test', 'dns_txt', 'verified',
+     'digibility-site-verification=linkintentverify8h2token', now(), now());
+
+  PERFORM set_config('request.jwt.claims',
+    json_build_object('sub', current_setting('b1.owner'), 'role', 'authenticated')::text, true);
+  SET LOCAL ROLE authenticated;
+  r := public.seo_brain_link_authorize(intent_id, '11000000-0000-4000-8000-0000000000a2');
+  RESET ROLE;
+
   IF r->>'resolution' <> 'business_host_already_linked' THEN
-    RAISE EXCEPTION 'the same business/host must refuse as business_host_already_linked, got %', r;
+    RAISE EXCEPTION '8h2: same business+host but a DIFFERENT website must still refuse as business_host_already_linked, got %', r;
+  END IF;
+
+  DELETE FROM public.seo_websites WHERE id = '11000000-0000-4000-8000-0000000000a2';
+END $$;
+SELECT set_config('request.jwt.claims',     '', false),
+       set_config('request.jwt.claim.sub',  '', false),
+       set_config('request.jwt.claim.role', '', false);
+
+-- 8h3. D-026A idempotent-repeat fix, negative control (pre-existing branch,
+--      not previously covered here): a DIFFERENT business, same actor mapping
+--      (business_id is caller-supplied per intent, independent of the actor),
+--      requesting the SAME website ('...000a') already actively linked to
+--      'LINKINTENT-VERIFY-biz-d' -- must still refuse as website_already_linked
+--      (never already_linked; the idempotent short-circuit only ever compares
+--      within the SAME business_id).
+DO $$
+DECLARE
+  created jsonb;
+  intent_id uuid;
+  r jsonb;
+BEGIN
+  created := public.seo_brain_create_link_intent(
+    current_setting('li.actor_d'), 'd-case-7@example.test', 'LINKINTENT-VERIFY-biz-different', 'linkintent-verify-a.test');
+  r := public.seo_brain_link_intent_redeem(created->>'launchCode', false);
+  intent_id := (r->>'intentId')::uuid;
+
+  PERFORM set_config('request.jwt.claims',
+    json_build_object('sub', current_setting('b1.owner'), 'role', 'authenticated')::text, true);
+  SET LOCAL ROLE authenticated;
+  r := public.seo_brain_link_authorize(intent_id, '11000000-0000-4000-8000-00000000000a');
+  RESET ROLE;
+
+  IF r->>'resolution' <> 'website_already_linked' THEN
+    RAISE EXCEPTION '8h3: a different business requesting an already-linked website must refuse as website_already_linked, got %', r;
   END IF;
 END $$;
 SELECT set_config('request.jwt.claims',     '', false),

@@ -295,6 +295,7 @@ export async function resolveLinkWebsite(intentId: string): Promise<ResolveLinkW
 
 export type LinkAuthorizationResolution =
   | "resolved"
+  | "already_linked"
   | "unauthorized"
   | "invalid_request"
   | "intent_not_redeemed"
@@ -317,6 +318,7 @@ export interface LinkAuthorizationResult {
 
 const LINK_AUTHORIZATION_RESOLUTIONS: readonly LinkAuthorizationResolution[] = [
   "resolved",
+  "already_linked",
   "unauthorized",
   "invalid_request",
   "intent_not_redeemed",
@@ -333,9 +335,13 @@ const LINK_AUTHORIZATION_RESOLUTIONS: readonly LinkAuthorizationResolution[] = [
 ];
 
 /**
- * Calls `seo_brain_link_authorize` directly. Only `resolution === "resolved"`
- * is a genuine, completed Brain <-> SEO website link; every other resolution
- * must NOT be presented to the customer as a successful connection.
+ * Calls `seo_brain_link_authorize` directly. `resolution === "resolved"` is a
+ * newly-created Brain <-> SEO website link; `"already_linked"` is the same
+ * business+host+website relationship already existing and active (an
+ * idempotent repeat, e.g. the customer running Connect SEO Intelligence again
+ * for a business already genuinely connected). Both are a completed,
+ * successful connection. Every other resolution must NOT be presented to the
+ * customer as a successful connection.
  */
 export async function authorizeLinkedWebsite(
   intentId: string,

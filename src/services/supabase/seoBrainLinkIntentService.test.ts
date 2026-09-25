@@ -326,6 +326,16 @@ describe("authorizeLinkedWebsite", () => {
     expect(result.linkId).toBeUndefined();
   });
 
+  it("recognizes already_linked (idempotent repeat) as a valid resolution, carrying the existing link id", async () => {
+    vi.spyOn(supabase, "rpc").mockResolvedValue({
+      data: { resolution: "already_linked", linkId: "l1", websiteId: "w1" },
+      error: null,
+    } as never);
+
+    const result = await authorizeLinkedWebsite("intent-1", "w1");
+    expect(result).toEqual({ resolution: "already_linked", linkId: "l1", websiteId: "w1" });
+  });
+
   it("throws on an unrecognized resolution rather than silently passing it through", async () => {
     vi.spyOn(supabase, "rpc").mockResolvedValue({
       data: { resolution: "some_future_resolution" },
